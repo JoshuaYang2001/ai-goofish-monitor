@@ -38,16 +38,16 @@ export interface WantCountHistoryPoint {
 }
 
 export interface ItemSearchResult {
-  商品标题: string
-  当前售价: string
-  商品原价: string
-  "想要"人数: string
-  商品标签: string[]
-  发货地区: string
-  卖家昵称: string
-  商品链接: string
-  发布时间: string
-  商品 ID: string
+  '商品标题': string
+  '当前售价': string
+  '商品原价': string | null
+  '想要人数': number | string | null
+  '商品标签': string[]
+  '发货地区': string
+  '卖家昵称': string
+  '商品链接': string
+  '发布时间': string | null
+  '商品 ID': string
 }
 
 export interface SearchHistoryItem {
