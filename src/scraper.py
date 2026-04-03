@@ -1288,3 +1288,120 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
     cleanup_task_images(task_config.get("task_name", "default"))
 
     return processed_item_count
+
+
+async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
+    """
+    通过商品 ID 精确获取商品详情
+    Args:
+        item_id: 闲鱼商品 ID
+    Returns:
+        商品信息字典，如果失败则返回 None
+    """
+    from src.config import STATE_FILE, DETAIL_API_URL_PATTERN
+    from src.parsers import parse_user_head_data
+
+    if not os.path.exists(STATE_FILE):
+        raise FileNotFoundError(f"登录状态文件不存在：{STATE_FILE}")
+
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            snapshot_data = json.load(f)
+    except Exception as e:
+        print(f"警告：读取登录状态文件失败：{e}")
+        snapshot_data = None
+
+    async with async_playwright() as p:
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+        ]
+
+        launch_kwargs = {"headless": RUN_HEADLESS, "args": launch_args}
+        launch_kwargs["channel"] = _resolve_browser_channel()
+
+        browser = await p.chromium.launch(**launch_kwargs)
+
+        context_kwargs = _default_context_options()
+        storage_state_arg = STATE_FILE
+
+        if isinstance(snapshot_data, dict) and any(
+            key in snapshot_data for key in ("env", "headers", "page", "storage")
+        ):
+            storage_state_arg = {"cookies": snapshot_data.get("cookies", [])}
+            context_kwargs.update(_build_context_overrides(snapshot_data))
+            extra_headers = _build_extra_headers(snapshot_data.get("headers"))
+            if extra_headers:
+                context_kwargs["extra_http_headers"] = extra_headers
+
+        context = await browser.new_context(
+            storage_state=storage_state_arg, **_clean_kwargs(context_kwargs)
+        )
+
+        try:
+            page = await context.new_page()
+
+            # 访问商品详情页
+            item_url = f"https://www.goofish.com/item/{item_id}.html"
+            await page.goto(item_url, wait_until="domcontentloaded", timeout=30000)
+
+            # 等待详情页 API 响应
+            try:
+                async with page.expect_response(
+                    lambda r: DETAIL_API_URL_PATTERN in r.url, timeout=15000
+                ) as detail_info:
+                    pass
+
+                detail_response = await detail_info.value
+                if not detail_response.ok:
+                    print(f"获取商品详情 API 失败：{detail_response.status}")
+                    return None
+
+                detail_json = await detail_response.json()
+
+                # 检查是否商品不存在
+                ret_string = str(await safe_get(detail_json, "ret", default=[]))
+                if "FAIL_SYS_USER_VALIDATE" in ret_string:
+                    raise RiskControlError("FAIL_SYS_USER_VALIDATE")
+
+                item_do = await safe_get(detail_json, "data", "itemDO", default={})
+                seller_do = await safe_get(detail_json, "data", "sellerDO", default={})
+
+                if not item_do:
+                    print("商品详情数据为空，可能商品已下架")
+                    return None
+
+                # 解析商品信息
+                result = {
+                    "item_id": item_id,
+                    "商品标题": item_do.get("title", ""),
+                    "当前售价": item_do.get("price"),
+                    "商品链接": item_url,
+                    "想要人数": item_do.get("wantCnt"),
+                    "浏览量": item_do.get("browseCnt"),
+                    "卖家 ID": seller_do.get("sellerId"),
+                    "卖家昵称": seller_do.get("nick"),
+                    "芝麻信用": seller_do.get("zhimaLevelInfo", {}).get("levelName"),
+                }
+
+                # 提取图片列表
+                image_infos = await safe_get(item_do, "imageInfos", default=[])
+                if image_infos:
+                    result["商品图片列表"] = [
+                        img.get("url") for img in image_infos if img.get("url")
+                    ]
+
+                return result
+
+            except PlaywrightTimeoutError:
+                print("等待商品详情 API 超时")
+                return None
+
+        finally:
+            await browser.close()
+
+    except Exception as e:
+        print(f"通过 ID 获取商品详情失败：{e}")
+        return None

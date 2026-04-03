@@ -77,7 +77,7 @@ pytest tests/unit/test_utils.py::test_safe_get  # 运行单个测试函数
 
 环境变量 (`.env`)：
 - AI 模型：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL_NAME`
-- 通知：`NTFY_TOPIC_URL`, `BARK_URL`, `WX_BOT_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+- 通知：`NTFY_TOPIC_URL`, `BARK_URL`, `WX_BOT_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `FEISHU_WEBHOOK_URL`, `DINGTALK_WEBHOOK_URL`
 - 爬虫：`RUN_HEADLESS`, `LOGIN_IS_EDGE`
 - Web 认证：`WEB_USERNAME`, `WEB_PASSWORD`
 - 端口：`SERVER_PORT`
@@ -94,9 +94,45 @@ pytest tests/unit/test_utils.py::test_safe_get  # 运行单个测试函数
 6. NotificationService 推送符合条件的商品
 7. 结果存储：`jsonl/`（数据）、`images/`（图片）、`logs/`（日志）
 
+## 新增功能（v2.1+）
+
+### 商家维度监控
+- 服务：`SellerMonitoringService` (`src/services/seller_monitoring_service.py`)
+- API：`/api/sellers/*`
+- 功能：卖家黑名单/白名单、卖家信息采集、店铺商品监控
+
+### 商品 ID 精确搜索
+- 方法：`scrape_item_by_id()` in `src/scraper.py`
+- API：`POST /api/sellers/search/item-id`
+- 历史记录存储在 `search_history` 表
+
+### 指标追踪（价格/想要数）
+- 服务：`MetricsTrackingService` (`src/services/metrics_tracking_service.py`)
+- API：`/api/metrics/item/{item_id}/*`
+- 自动记录每次爬取的价格和想要数，支持变化检测
+
+### 通知渠道扩展
+- 飞书：`FeishuClient` (`src/infrastructure/external/notification_clients/feishu_client.py`)
+- 钉钉：`DingtalkClient` (`src/infrastructure/external/notification_clients/dingtalk_client.py`)
+- 内置重试机制（3 次，指数退避）
+
+### PWA 支持
+- 前端：`web-ui/vite.config.ts` 配置 `vite-plugin-pwa`
+- 安装提示组件：`web-ui/src/components/PWAInstallPrompt.vue`
+- 构建后生成 `dist/manifest.webmanifest` 和 Service Worker
+
+## 数据库表
+
+新增表（`src/infrastructure/persistence/sqlite_connection.py`）：
+- `seller_info` - 卖家信息（ID、昵称、芝麻信用等）
+- `item_metrics_history` - 商品指标历史（价格、想要数、浏览量）
+- `seller_list` - 卖家黑名单/白名单
+- `search_history` - 商品 ID 搜索历史
+
 ## 注意事项
 
 - AI 模型必须支持图片上传（多模态）
 - Docker 部署需通过 Web UI 手动更新登录状态（`state.json`）
 - 遇到滑动验证码时设置 `RUN_HEADLESS=false` 手动处理
 - 生产环境务必修改默认 Web 认证密码
+- PWA 功能需要 HTTPS 环境（本地开发除外）

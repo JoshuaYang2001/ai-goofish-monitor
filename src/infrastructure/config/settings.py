@@ -73,6 +73,8 @@ class NotificationSettings(_EnvSettings):
     webhook_content_type: str = _env_field("JSON", "WEBHOOK_CONTENT_TYPE")
     webhook_query_parameters: Optional[str] = _env_field(None, "WEBHOOK_QUERY_PARAMETERS")
     webhook_body: Optional[str] = _env_field(None, "WEBHOOK_BODY")
+    feishu_webhook_url: Optional[str] = _env_field(None, "FEISHU_WEBHOOK_URL")
+    dingtalk_webhook_url: Optional[str] = _env_field(None, "DINGTALK_WEBHOOK_URL")
     pcurl_to_mobile: bool = _env_field(True, "PCURL_TO_MOBILE")
 
     def has_any_notification_enabled(self) -> bool:

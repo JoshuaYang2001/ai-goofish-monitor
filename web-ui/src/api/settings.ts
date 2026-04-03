@@ -15,6 +15,8 @@ export interface NotificationSettings {
   WEBHOOK_CONTENT_TYPE?: string
   WEBHOOK_QUERY_PARAMETERS?: string
   WEBHOOK_BODY?: string
+  FEISHU_WEBHOOK_URL?: string
+  DINGTALK_WEBHOOK_URL?: string
   PCURL_TO_MOBILE?: boolean
   BARK_URL_SET?: boolean
   GOTIFY_TOKEN_SET?: boolean
@@ -22,6 +24,8 @@ export interface NotificationSettings {
   TELEGRAM_BOT_TOKEN_SET?: boolean
   WEBHOOK_URL_SET?: boolean
   WEBHOOK_HEADERS_SET?: boolean
+  FEISHU_WEBHOOK_URL_SET?: boolean
+  DINGTALK_WEBHOOK_URL_SET?: boolean
   CONFIGURED_CHANNELS?: string[]
 }
 
@@ -40,6 +44,8 @@ export interface NotificationSettingsUpdate {
   WEBHOOK_CONTENT_TYPE?: string | null
   WEBHOOK_QUERY_PARAMETERS?: string | null
   WEBHOOK_BODY?: string | null
+  FEISHU_WEBHOOK_URL?: string | null
+  DINGTALK_WEBHOOK_URL?: string | null
   PCURL_TO_MOBILE?: boolean
 }
 
@@ -97,6 +103,8 @@ export interface SystemStatus {
     telegram_chat_id_set: boolean
     webhook_url_set: boolean
     webhook_headers_set: boolean
+    feishu_webhook_url_set: boolean
+    dingtalk_webhook_url_set: boolean
   }
   configured_notification_channels?: string[]
 }

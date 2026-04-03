@@ -4,6 +4,8 @@
 from src.infrastructure.config.settings import NotificationSettings
 
 from .bark_client import BarkClient
+from .dingtalk_client import DingtalkClient
+from .feishu_client import FeishuClient
 from .gotify_client import GotifyClient
 from .ntfy_client import NtfyClient
 from .telegram_client import TelegramClient
@@ -37,4 +39,6 @@ def build_notification_clients(settings: NotificationSettings):
             webhook_body=settings.webhook_body,
             pcurl_to_mobile=pcurl_to_mobile,
         ),
+        FeishuClient(settings.feishu_webhook_url, pcurl_to_mobile=pcurl_to_mobile),
+        DingtalkClient(settings.dingtalk_webhook_url, pcurl_to_mobile=pcurl_to_mobile),
     ]

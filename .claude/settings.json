@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(venv/bin/playwright install:*)",
+      "Bash(git push:*)",
+      "Bash(gh repo:*)",
+      "Bash(gh workflow:*)",
+      "Bash(git remote:*)"
+    ]
+  }
+}
