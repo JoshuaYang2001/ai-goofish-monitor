@@ -197,7 +197,6 @@ class ProcessService:
         items_count = 0
         want_count_total = 0
         want_count_diff = 0
-        price_changes = []
         price_diff = None
         log_path = self.log_paths.get(task_id)
         if log_path:
@@ -246,9 +245,7 @@ class ProcessService:
             notification_data["want_count_total"] = want_count_total
             if want_count_diff != 0:
                 notification_data["want_count_diff"] = want_count_diff
-        if price_changes:
-            notification_data["price_changes"] = price_changes
-        if price_diff is not None:
+        if price_diff is not None and price_diff != 0:
             notification_data["price_diff"] = price_diff
 
         await websocket.broadcast_message("task_completed", notification_data)
