@@ -202,9 +202,19 @@ class ProcessService:
         if log_path:
             try:
                 with open(log_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    # 从日志中查找类似 "推荐了 X 个商品" 或 "共处理了 X 个商品" 的行
+                    full_content = f.read()
+
+                    # 只解析本次运行的日志（最后一个 "--- 开始执行监控任务 ---" 之后的内容）
                     import re
+                    run_markers = list(re.finditer(r"--- 开始执行监控任务 ---", full_content))
+                    if run_markers:
+                        # 取最后一个开始标记之后的内容
+                        last_marker_pos = run_markers[-1].start()
+                        content = full_content[last_marker_pos:]
+                    else:
+                        content = full_content
+
+                    # 从日志中查找类似 "推荐了 X 个商品" 或 "共处理了 X 个商品" 的行
                     matches = re.findall(r"推荐了 (\d+) 个商品", content)
                     if matches:
                         items_count = int(matches[-1])
@@ -214,21 +224,21 @@ class ProcessService:
                         if matches:
                             items_count = int(matches[-1])
 
-                    # 提取想要数汇总信息（只取最后一次）
+                    # 提取想要数汇总信息（只取本次运行的值）
                     want_matches = re.findall(r"想要数：(\d+)", content)
                     if want_matches:
-                        want_count_total = int(want_matches[-1])  # 只取最后一次的值
+                        want_count_total = int(want_matches[-1])  # 只取本次运行的值
                         # 从日志中提取上次的想要数
                         prev_want_matches = re.findall(r"上次想要数：(\d+)", content)
                         if prev_want_matches:
                             prev_want = int(prev_want_matches[-1])
                             want_count_diff = want_count_total - prev_want
 
-                    # 提取价格变化信息（包含差异）
+                    # 提取价格变化信息（只解析本次运行的日志）
                     # 匹配格式：价格变化：¥+4.0 或 价格变化：¥-2.5 或 价格变化：¥3.0
                     price_matches = re.findall(r"价格变化：¥([+-]?[\d.]+)", content)
                     if price_matches:
-                        # 只取最后一次价格变化
+                        # 只取本次运行的最后一次价格变化
                         last_price_change = price_matches[-1]
                         price_diff = round(float(last_price_change), 2)
             except Exception:

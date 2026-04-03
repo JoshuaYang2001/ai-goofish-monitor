@@ -283,8 +283,13 @@ class MetricsTrackingService:
             row = cursor.fetchone()
             return row["total"] if row else None
 
-    def get_price_diff_for_task(self, task_name: str) -> Optional[float]:
-        """获取任务下所有商品的价格变化（本次 - 上次，只在本次有新记录时返回）"""
+    def get_price_diff_for_task(self, task_name: str, since: Optional[str] = None) -> Optional[float]:
+        """获取任务下所有商品的价格变化（本次 - 上次，只在本次有新记录时返回）
+
+        Args:
+            task_name: 任务名称
+            since: 可选，只计算此时间之后创建的记录（ISO 格式）
+        """
         from datetime import datetime, timedelta
 
         with sqlite_connection() as conn:
@@ -307,6 +312,9 @@ class MetricsTrackingService:
             now = datetime.now()
             five_minutes_ago = (now - timedelta(minutes=5)).isoformat()
 
+            # 如果提供了 since 参数，使用它作为时间下限
+            time_lower_bound = since if since else five_minutes_ago
+
             # 计算每个商品的最新和上次价格差异
             total_diff = 0.0
             has_new_record = False  # 标记本次爬取是否有新记录
@@ -328,8 +336,8 @@ class MetricsTrackingService:
                 current_price = current_row["price"]
                 current_time = current_row["snapshot_time"]
 
-                # 如果最新记录不是最近 5 分钟内创建的，说明本次爬取没有新变化
-                if current_time < five_minutes_ago:
+                # 如果最新记录不是在时间下限之后创建的，说明本次爬取没有新变化
+                if current_time < time_lower_bound:
                     continue
 
                 # 标记本次爬取有新记录
@@ -359,8 +367,13 @@ class MetricsTrackingService:
                 return round(total_diff / count, 2)
             return None
 
-    def get_want_count_diff_for_task(self, task_name: str) -> Optional[int]:
-        """获取任务下所有商品的想要数变化（本次 - 上次，只在本次有新记录时返回）"""
+    def get_want_count_diff_for_task(self, task_name: str, since: Optional[str] = None) -> Optional[int]:
+        """获取任务下所有商品的想要数变化（本次 - 上次，只在本次有新记录时返回）
+
+        Args:
+            task_name: 任务名称
+            since: 可选，只计算此时间之后创建的记录（ISO 格式）
+        """
         from datetime import datetime, timedelta
 
         with sqlite_connection() as conn:
@@ -383,6 +396,9 @@ class MetricsTrackingService:
             now = datetime.now()
             five_minutes_ago = (now - timedelta(minutes=5)).isoformat()
 
+            # 如果提供了 since 参数，使用它作为时间下限
+            time_lower_bound = since if since else five_minutes_ago
+
             # 计算每个商品的最新和上次想要数差异
             total_diff = 0
             has_new_record = False  # 标记本次爬取是否有新记录
@@ -404,8 +420,8 @@ class MetricsTrackingService:
                 current_want = current_row["want_count"]
                 current_time = current_row["snapshot_time"]
 
-                # 如果最新记录不是最近 5 分钟内创建的，说明本次爬取没有新变化
-                if current_time < five_minutes_ago:
+                # 如果最新记录不是在时间下限之后创建的，说明本次爬取没有新变化
+                if current_time < time_lower_bound:
                     continue
 
                 # 标记本次爬取有新记录

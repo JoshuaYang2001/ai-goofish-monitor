@@ -6,6 +6,7 @@ import json
 import signal
 import contextlib
 import re
+from datetime import datetime as dt
 
 from src.config import get_state_file
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
@@ -198,6 +199,9 @@ async def main():
 
     print("--------------------")
 
+    # 记录爬虫开始时间（用于后续计算价格/想要数差异）
+    crawl_start_time = dt.now().isoformat()
+
     active_task_configs = []
     if args.task_name:
         # 如果指定了任务名称，只查找该任务
@@ -294,10 +298,10 @@ async def main():
                     metrics_service = get_metrics_service()
                     # 读取当前总想要数
                     want_count_total = metrics_service.get_total_want_count_for_task(task_name) or 0
-                    # 读取上次和当前的想要数差异
-                    want_count_diff = metrics_service.get_want_count_diff_for_task(task_name) or 0
-                    # 读取价格变化
-                    price_diff = metrics_service.get_price_diff_for_task(task_name)
+                    # 读取上次和当前的想要数差异（只计算本次爬取开始后的变化）
+                    want_count_diff = metrics_service.get_want_count_diff_for_task(task_name, since=crawl_start_time) or 0
+                    # 读取价格变化（只计算本次爬取开始后的变化）
+                    price_diff = metrics_service.get_price_diff_for_task(task_name, since=crawl_start_time)
                 except Exception as e:
                     print(f"   获取指标数据失败：{e}")
 
