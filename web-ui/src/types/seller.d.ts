@@ -36,3 +36,23 @@ export interface WantCountHistoryPoint {
   time: string
   want_count: number | null
 }
+
+export interface ItemSearchResult {
+  商品标题: string
+  当前售价: string
+  商品原价: string
+  "想要"人数: string
+  商品标签: string[]
+  发货地区: string
+  卖家昵称: string
+  商品链接: string
+  发布时间: string
+  商品 ID: string
+}
+
+export interface SearchHistoryItem {
+  search_type: string
+  search_value: string
+  result: ItemSearchResult | null
+  searched_at: string
+}

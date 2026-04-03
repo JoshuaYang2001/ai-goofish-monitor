@@ -1398,6 +1398,7 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
 
                     result = {
                         "item_id": item_id,
+                        "商品 ID": item_id,
                         "商品标题": item_do.get("title", ""),
                         "当前售价": price_value,
                         "商品链接": item_url,
@@ -1457,8 +1458,8 @@ async def scrape_items_by_id_batch(
     )
     from src.services.seller_profile_cache import SellerProfileCache
 
-    keyword = task_config.get("keyword", "item_id_monitor")
     task_name = task_config.get("task_name", "商品 ID 监控")
+    keyword = task_config.get("keyword") or task_name or "item_id_monitor"
     ai_prompt_text = task_config.get("ai_prompt_text", "")
     analyze_images = _should_analyze_images(task_config)
     decision_mode = str(task_config.get("decision_mode", "ai")).strip().lower()
@@ -1543,6 +1544,18 @@ async def scrape_items_by_id_batch(
                 },
             }
 
+            # 记录价格快照（商品 ID 模式也需要记录价格历史）
+            try:
+                record_market_snapshots(
+                    keyword=keyword,
+                    task_name=task_name,
+                    items=[final_record["商品信息"]],
+                    run_id=f"id_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    snapshot_time=final_record["爬取时间"],
+                )
+            except Exception as e:
+                print(f"记录价格快照失败：{e}")
+
             # 提取卖家信息
             seller_id = str(result.get("卖家 ID") or "")
             zhima_credit_text = result.get("芝麻信用", "")
@@ -1574,4 +1587,8 @@ async def scrape_items_by_id_batch(
     await analysis_dispatcher.join()
 
     print(f"批量抓取完成，成功处理 {processed_count}/{len(item_ids)} 个商品")
-    return processed_count
+
+    # 返回统计信息（用于进程服务解析想要数和价格变化）
+    return {
+        "processed_count": processed_count,
+    }

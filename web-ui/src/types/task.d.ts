@@ -25,6 +25,7 @@ export interface Task {
   decision_mode: 'ai' | 'keyword';
   keyword_rules: string[];
   is_running: boolean;
+  is_paused: boolean;
 }
 
 export type TaskGenerationStatus = 'queued' | 'running' | 'completed' | 'failed';

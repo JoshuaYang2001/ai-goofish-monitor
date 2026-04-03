@@ -217,6 +217,122 @@ class MetricsTrackingService:
                 }
             return None
 
+    def get_total_want_count_for_task(self, task_name: str) -> Optional[int]:
+        """获取任务下所有商品的当前总想要数"""
+        with sqlite_connection() as conn:
+            # 首先获取所有相关的 item_id
+            cursor = conn.execute(
+                """
+                SELECT DISTINCT item_id FROM (
+                    SELECT item_id, MAX(snapshot_time) as latest_time
+                    FROM item_metrics_history
+                    WHERE item_id IN (
+                        SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?
+                    )
+                    GROUP BY item_id
+                ) latest
+                """,
+                (task_name,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+
+            item_ids = [row["item_id"] for row in rows]
+            placeholders = ",".join("?" * len(item_ids))
+            cursor = conn.execute(
+                f"""
+                SELECT SUM(want_count) as total
+                FROM (
+                    SELECT im.item_id, im.want_count
+                    FROM item_metrics_history im
+                    INNER JOIN (
+                        SELECT item_id, MAX(snapshot_time) as max_time
+                        FROM item_metrics_history
+                        WHERE item_id IN ({placeholders})
+                        GROUP BY item_id
+                    ) latest ON im.item_id = latest.item_id AND im.snapshot_time = latest.max_time
+                )
+                """,
+                tuple(item_ids),
+            )
+            row = cursor.fetchone()
+            return row["total"] if row else None
+
+    def get_want_count_diff_for_task(self, task_name: str) -> Optional[int]:
+        """获取任务下所有商品的想要数变化（当前 - 上次）"""
+        with sqlite_connection() as conn:
+            # 获取所有相关的 item_id
+            cursor = conn.execute(
+                """
+                SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?
+                """,
+                (task_name,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+
+            # 计算每个商品的最新和上次想要数，然后求和差异
+            cursor = conn.execute(
+                f"""
+                SELECT
+                    SUM(COALESCE(current_want, 0) - COALESCE(prev_want, 0)) as total_diff
+                FROM (
+                    SELECT
+                        im.item_id,
+                        (SELECT want_count FROM item_metrics_history
+                         WHERE item_id = im.item_id AND want_count IS NOT NULL
+                         ORDER BY snapshot_time DESC LIMIT 1) as current_want,
+                        (SELECT want_count FROM item_metrics_history
+                         WHERE item_id = im.item_id AND want_count IS NOT NULL
+                         ORDER BY snapshot_time DESC LIMIT 1 OFFSET 1) as prev_want
+                    FROM (SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?) im
+                )
+                """,
+                (task_name,),
+            )
+            row = cursor.fetchone()
+            return row["total_diff"] if row and row["total_diff"] else 0
+
+    def get_price_diff_for_task(self, task_name: str) -> Optional[float]:
+        """获取任务下所有商品的价格变化（当前 - 上次）"""
+        with sqlite_connection() as conn:
+            # 获取所有相关的 item_id
+            cursor = conn.execute(
+                """
+                SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?
+                """,
+                (task_name,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+
+            # 计算每个商品的最新和上次价格，然后求平均差异
+            cursor = conn.execute(
+                f"""
+                SELECT AVG(current_price - prev_price) as avg_diff
+                FROM (
+                    SELECT
+                        im.item_id,
+                        (SELECT price FROM item_metrics_history
+                         WHERE item_id = im.item_id AND price IS NOT NULL
+                         ORDER BY snapshot_time DESC LIMIT 1) as current_price,
+                        (SELECT price FROM item_metrics_history
+                         WHERE item_id = im.item_id AND price IS NOT NULL
+                         ORDER BY snapshot_time DESC LIMIT 1 OFFSET 1) as prev_price
+                    FROM (SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?) im
+                )
+                WHERE current_price IS NOT NULL AND prev_price IS NOT NULL
+                """,
+                (task_name,),
+            )
+            row = cursor.fetchone()
+            if row and row["avg_diff"] is not None:
+                return round(row["avg_diff"], 2)
+            return None
+
 
 # 全局服务实例
 _metrics_service: Optional[MetricsTrackingService] = None

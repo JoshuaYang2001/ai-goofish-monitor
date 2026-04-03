@@ -45,7 +45,8 @@ SCHEMA_STATEMENTS = (
         region TEXT,
         decision_mode TEXT NOT NULL,
         keyword_rules_json TEXT NOT NULL,
-        is_running INTEGER NOT NULL
+        is_running INTEGER NOT NULL,
+        is_paused INTEGER NOT NULL DEFAULT 0
     )
     """,
     """

@@ -13,19 +13,21 @@ import {
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
-import { 
-  Play, 
-  Square, 
-  Pencil, 
-  Trash2, 
-  User, 
-  BrainCircuit, 
+import {
+  Play,
+  Square,
+  Pencil,
+  Trash2,
+  User,
+  BrainCircuit,
   Keyboard,
   Clock,
   Layers,
   MapPin,
   RefreshCcw,
-  Search
+  Search,
+  Pause,
+  PlayCircle
 } from 'lucide-vue-next'
 import { formatCountdown, formatNextRunAbsolute } from '@/lib/taskSchedule'
 
@@ -88,6 +90,8 @@ const emit = defineEmits<{
   (e: 'delete-task', taskId: number): void
   (e: 'run-task', taskId: number): void
   (e: 'stop-task', taskId: number): void
+  (e: 'pause-task', taskId: number): void
+  (e: 'resume-task', taskId: number): void
   (e: 'edit-task', task: Task): void
   (e: 'refresh-criteria', task: Task): void
   (e: 'toggle-enabled', task: Task, enabled: boolean): void
@@ -274,7 +278,7 @@ const emit = defineEmits<{
               <div class="flex justify-end items-center gap-2">
                 <Button
                   v-if="!task.is_running"
-                  size="sm" 
+                  size="sm"
                   variant="default"
                   class="h-8 px-3 rounded-lg shadow-sm transition-all active:scale-95 text-white border-none"
                   :class="task.enabled ? 'bg-primary hover:bg-primary/90' : 'bg-slate-200 text-slate-400 pointer-events-none opacity-50'"
@@ -296,19 +300,41 @@ const emit = defineEmits<{
                   <span class="font-bold text-[11px]">{{ isStopping(task.id) ? t('tasks.table.stopping') : t('tasks.table.stop') }}</span>
                 </Button>
 
+                <!-- Pause/Resume button -->
+                <template v-if="task.cron && task.enabled">
+                  <Button
+                    v-if="task.is_paused"
+                    size="sm"
+                    variant="outline"
+                    class="h-8 px-2 rounded-lg border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                    @click="emit('resume-task', task.id)"
+                  >
+                    <PlayCircle class="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    v-else
+                    size="sm"
+                    variant="outline"
+                    class="h-8 px-2 rounded-lg border-slate-200 text-slate-500 hover:bg-slate-50"
+                    @click="emit('pause-task', task.id)"
+                  >
+                    <Pause class="w-3.5 h-3.5" />
+                  </Button>
+                </template>
+
                 <div class="flex items-center gap-0.5 ml-1">
-                  <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    class="w-8 h-8 rounded-full text-slate-400 hover:text-primary hover:bg-primary/5 transition-colors" 
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    class="w-8 h-8 rounded-full text-slate-400 hover:text-primary hover:bg-primary/5 transition-colors"
                     @click="emit('edit-task', task)"
                   >
                     <Pencil class="w-3.5 h-3.5" />
                   </Button>
-                  <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    class="w-8 h-8 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors" 
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    class="w-8 h-8 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
                     @click="emit('delete-task', task.id)"
                   >
                     <Trash2 class="w-3.5 h-3.5" />

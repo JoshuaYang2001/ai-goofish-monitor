@@ -285,7 +285,34 @@ async def main():
             print(f"任务 '{task_name}' 因异常而终止：{result}")
         else:
             if task_type == "item_id":
-                print(f"任务 '{task_name}' 正常结束，本次运行共处理了 {result} 个商品。")
+                # 从数据库读取想要数和价格变化
+                want_count_total = 0
+                want_count_diff = 0
+                price_diff = None
+                try:
+                    from src.services.metrics_tracking_service import get_metrics_service
+                    metrics_service = get_metrics_service()
+                    # 读取当前总想要数
+                    want_count_total = metrics_service.get_total_want_count_for_task(task_name) or 0
+                    # 读取上次和当前的想要数差异
+                    want_count_diff = metrics_service.get_want_count_diff_for_task(task_name) or 0
+                    # 读取价格变化
+                    price_diff = metrics_service.get_price_diff_for_task(task_name)
+                except Exception as e:
+                    print(f"   获取指标数据失败：{e}")
+
+                # 输出想要数和价格变化到日志（供 process_service.py 解析）
+                if want_count_total > 0:
+                    print(f"想要数：{want_count_total}")
+                    if want_count_diff != 0:
+                        print(f"上次想要数：{want_count_total - want_count_diff}")
+                    print(f"推荐了 {result.get('processed_count', 0) if isinstance(result, dict) else result} 个商品")
+                else:
+                    print(f"任务 '{task_name}' 正常结束，本次运行共处理了 {result.get('processed_count', 0) if isinstance(result, dict) else result} 个商品。")
+
+                if price_diff is not None and price_diff != 0:
+                    price_sign = "+" if price_diff > 0 else ""
+                    print(f"价格变化：¥{price_sign}{price_diff}")
             else:
                 print(f"任务 '{task_name}' 正常结束，本次运行共处理了 {result} 个新商品。")
 

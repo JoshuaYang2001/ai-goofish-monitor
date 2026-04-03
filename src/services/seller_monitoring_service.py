@@ -2,6 +2,7 @@
 卖家监控服务
 负责卖家维度的监控、黑名单/白名单管理
 """
+import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from src.infrastructure.persistence.sqlite_connection import sqlite_connection
@@ -172,6 +173,56 @@ class SellerMonitoringService:
                 """
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    def save_search_history(
+        self, search_value: str, result_json: Optional[Dict] = None
+    ) -> None:
+        """保存商品 ID 搜索历史"""
+        with sqlite_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO search_history (
+                    search_type, search_value, result_json, searched_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    "item_id",
+                    search_value,
+                    json.dumps(result_json) if result_json else None,
+                    datetime.now().isoformat(),
+                ),
+            )
+            conn.commit()
+
+    def get_search_history(
+        self, limit: int = 20
+    ) -> List[Dict]:
+        """获取搜索历史"""
+        with sqlite_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT search_type, search_value, result_json, searched_at
+                FROM search_history
+                WHERE search_type = 'item_id'
+                ORDER BY searched_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                item = dict(row)
+                if item.get("result_json"):
+                    try:
+                        item["result"] = json.loads(item["result_json"])
+                    except (json.JSONDecodeError, TypeError):
+                        item["result"] = None
+                else:
+                    item["result"] = None
+                del item["result_json"]
+                result.append(item)
+            return result
 
 
 # 全局服务实例
