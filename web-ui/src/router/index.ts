@@ -58,12 +58,6 @@ const routes = [
         component: () => import('@/views/SellersView.vue'),
         meta: { titleKey: 'routes.sellers', requiresAuth: true },
       },
-      {
-        path: 'item-search',
-        name: 'ItemSearch',
-        component: () => import('@/views/ItemIdSearchView.vue'),
-        meta: { titleKey: 'routes.itemSearch', requiresAuth: true },
-      },
     ],
   },
   {

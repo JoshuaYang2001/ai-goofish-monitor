@@ -2,8 +2,6 @@ import { http } from '@/lib/http'
 import type {
   SellerInfo,
   SellerListResponse,
-  ItemSearchResult,
-  SearchHistoryItem,
   MetricsSnapshot,
   PriceHistoryPoint,
   WantCountHistoryPoint,
@@ -41,22 +39,6 @@ export async function getBlacklist(): Promise<SellerListResponse[]> {
 
 export async function getWhitelist(): Promise<SellerListResponse[]> {
   return await http('/api/sellers/whitelist/list')
-}
-
-// ===== 商品 ID 搜索 =====
-
-export async function searchByItemId(itemId: string): Promise<ItemSearchResult> {
-  const result = await http('/api/sellers/search/item-id', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ item_id: itemId }),
-  })
-  return result.data
-}
-
-export async function getSearchHistory(limit: number = 20): Promise<SearchHistoryItem[]> {
-  const result = await http(`/api/sellers/search-history?limit=${limit}`)
-  return result.history
 }
 
 // ===== 指标历史 =====

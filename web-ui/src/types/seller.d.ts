@@ -18,26 +18,6 @@ export interface SellerListResponse {
   expires_at: string | null
 }
 
-export interface ItemSearchResult {
-  item_id: string
-  '商品标题': string
-  '当前售价': string
-  '商品链接': string
-  '想要人数': string
-  '浏览量': string
-  '卖家 ID': string
-  '卖家昵称': string
-  '芝麻信用': string
-  '商品图片列表': string[]
-}
-
-export interface SearchHistoryItem {
-  search_type: string
-  search_value: string
-  result_json: ItemSearchResult | null
-  searched_at: string
-}
-
 export interface MetricsSnapshot {
   price: number | null
   price_display: string | null

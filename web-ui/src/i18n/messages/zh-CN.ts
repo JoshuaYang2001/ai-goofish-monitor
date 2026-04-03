@@ -18,7 +18,6 @@ const zhCN = {
     logs: '运行日志',
     settings: '系统设置',
     sellers: '卖家管理',
-    itemSearch: '商品 ID 搜索',
   },
   common: {
     cancel: '取消',
@@ -67,7 +66,6 @@ const zhCN = {
     results: '结果查看',
     logs: '运行日志',
     sellers: '卖家管理',
-    itemSearch: '商品 ID 搜索',
     settings: '系统设置',
     systemStatus: '系统状态',
     backendConnected: '后端实时已连接',

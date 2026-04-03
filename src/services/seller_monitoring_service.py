@@ -2,7 +2,6 @@
 卖家监控服务
 负责卖家维度的监控、黑名单/白名单管理
 """
-import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from src.infrastructure.persistence.sqlite_connection import sqlite_connection
@@ -173,51 +172,6 @@ class SellerMonitoringService:
                 """
             )
             return [dict(row) for row in cursor.fetchall()]
-
-    def save_search_history(
-        self, search_value: str, result_json: Optional[Dict] = None
-    ) -> None:
-        """保存商品 ID 搜索历史"""
-        with sqlite_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO search_history (
-                    search_type, search_value, result_json, searched_at
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (
-                    "item_id",
-                    search_value,
-                    json.dumps(result_json) if result_json else None,
-                    datetime.now().isoformat(),
-                ),
-            )
-            conn.commit()
-
-    def get_search_history(
-        self, limit: int = 20
-    ) -> List[Dict]:
-        """获取搜索历史"""
-        with sqlite_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT search_type, search_value, result_json, searched_at
-                FROM search_history
-                ORDER BY searched_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            )
-            results = []
-            for row in cursor.fetchall():
-                item = dict(row)
-                if item["result_json"]:
-                    try:
-                        item["result_json"] = json.loads(item["result_json"])
-                    except json.JSONDecodeError:
-                        item["result_json"] = None
-                results.append(item)
-            return results
 
 
 # 全局服务实例

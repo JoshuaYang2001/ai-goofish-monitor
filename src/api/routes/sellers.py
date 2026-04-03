@@ -15,17 +15,6 @@ class SellerListRequest(BaseModel):
     reason: str = ""
 
 
-class SellerIdSearchRequest(BaseModel):
-    item_id: str
-
-
-@router.get("/search-history")
-async def get_search_history(limit: int = 20):
-    """获取商品 ID 搜索历史"""
-    service = get_seller_service()
-    return service.get_search_history(limit=limit)
-
-
 @router.get("/{seller_id}")
 async def get_seller_info(seller_id: str):
     """获取卖家信息"""
@@ -72,24 +61,3 @@ async def get_whitelist() -> List[dict]:
     """获取白名单列表"""
     service = get_seller_service()
     return service.get_whitelist()
-
-
-@router.post("/search/item-id")
-async def search_by_item_id(request: SellerIdSearchRequest):
-    """通过商品 ID 精确搜索商品"""
-    import asyncio
-    from src.scraper import scrape_item_by_id
-
-    service = get_seller_service()
-    try:
-        # 设置 60 秒超时，给浏览器启动和页面加载足够时间
-        result = await asyncio.wait_for(scrape_item_by_id(request.item_id), timeout=60.0)
-        if result:
-            service.save_search_history(request.item_id, result)
-            return {"success": True, "data": result}
-        else:
-            raise HTTPException(status_code=404, detail="商品不存在或已下架")
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="搜索超时，请稍后重试")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
