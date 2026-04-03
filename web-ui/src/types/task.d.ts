@@ -3,8 +3,10 @@
 export interface Task {
   id: number;
   task_name: string;
+  task_type: 'keyword' | 'item_id';
   enabled: boolean;
-  keyword: string;
+  keyword: string | null;
+  item_id_list: string[];
   description: string;
   analyze_images: boolean;
   max_pages: number;
@@ -58,7 +60,9 @@ export type TaskUpdate = Partial<Omit<Task, 'id' | 'next_run_at'>>;
 // For task creation
 export interface TaskGenerateRequest {
   task_name: string;
-  keyword: string;
+  task_type?: 'keyword' | 'item_id';
+  keyword?: string | null;
+  item_id_list?: string[];
   description?: string;
   analyze_images?: boolean;
   personal_only?: boolean;

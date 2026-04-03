@@ -25,8 +25,10 @@ SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY,
         task_name TEXT NOT NULL,
+        task_type TEXT NOT NULL DEFAULT 'keyword',
         enabled INTEGER NOT NULL,
-        keyword TEXT NOT NULL,
+        keyword TEXT,
+        item_id_list_json TEXT NOT NULL DEFAULT '[]',
         description TEXT,
         analyze_images INTEGER NOT NULL,
         max_pages INTEGER NOT NULL,

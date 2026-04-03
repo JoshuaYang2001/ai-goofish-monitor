@@ -3,7 +3,7 @@ import json
 import os
 import random
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from urllib.parse import urlencode
 
 from playwright.async_api import (
@@ -1346,12 +1346,14 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
             try:
                 page = await context.new_page()
 
-                # 访问商品详情页
-                item_url = f"https://www.goofish.com/item/{item_id}.html"
-                # 使用 networkidle 等待更多资源加载完成
-                await page.goto(item_url, wait_until="networkidle", timeout=60000)
+                # 访问商品详情页（使用正确的 URL 格式：?id=xxx）
+                item_url = f"https://www.goofish.com/item?id={item_id}"
+                # 使用 domcontentloaded 只等待 DOM 加载完成，不等待所有资源
+                # 这样可以让 JavaScript 有机会在后台继续执行和发起 API 请求
+                await page.goto(item_url, wait_until="domcontentloaded", timeout=60000)
 
-                # 等待详情页 API 响应 (延长超时时间)
+                # 等待详情页 API 响应
+                # 闲鱼详情页是 SPA，需要等待 JavaScript 执行后发起 API 请求
                 try:
                     async with page.expect_response(
                         lambda r: DETAIL_API_URL_PATTERN in r.url, timeout=50000
@@ -1373,15 +1375,31 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
                     item_do = await safe_get(detail_json, "data", "itemDO", default={})
                     seller_do = await safe_get(detail_json, "data", "sellerDO", default={})
 
+                    # 调试：打印 item_do 的键
+                    # if isinstance(item_do, dict):
+                    #     print(f"DEBUG: item_do 键列表 = {list(item_do.keys())[:50]}")
+                    #     # 查找可能包含价格的字段
+                    #     for key in item_do.keys():
+                    #         if 'price' in key.lower():
+                    #             print(f"  {key}: {item_do.get(key)}")
+
                     if not item_do:
                         print("商品详情数据为空，可能商品已下架")
                         return None
 
                     # 解析商品信息
+                    # 价格字段可能在多个位置：soldPrice / price / finalPrice / displayPrice
+                    price_value = item_do.get("soldPrice") or item_do.get("price") or item_do.get("finalPrice") or item_do.get("displayPrice")
+                    if not price_value:
+                        # 尝试从 priceInfo 对象中获取
+                        price_info = item_do.get("priceInfo", {})
+                        if isinstance(price_info, dict):
+                            price_value = price_info.get("price") or price_info.get("displayPrice")
+
                     result = {
                         "item_id": item_id,
                         "商品标题": item_do.get("title", ""),
-                        "当前售价": item_do.get("price"),
+                        "当前售价": price_value,
                         "商品链接": item_url,
                         "想要人数": item_do.get("wantCnt"),
                         "浏览量": item_do.get("browseCnt"),
@@ -1417,3 +1435,143 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
     except Exception as e:
         print(f"通过 ID 获取商品详情失败：{e}")
         return None
+
+
+async def scrape_items_by_id_batch(
+    item_ids: List[str],
+    task_config: dict,
+    debug_limit: int = 0,
+) -> int:
+    """
+    批量通过商品 ID 获取商品详情并执行分析
+    Args:
+        item_ids: 商品 ID 列表
+        task_config: 任务配置（包含 AI prompt、通知设置等）
+        debug_limit: 调试模式限制数量（0 表示不限制）
+    Returns:
+        成功处理的商品数量
+    """
+    from src.services.item_analysis_dispatcher import (
+        ItemAnalysisDispatcher,
+        ItemAnalysisJob,
+    )
+    from src.services.seller_profile_cache import SellerProfileCache
+
+    keyword = task_config.get("keyword", "item_id_monitor")
+    task_name = task_config.get("task_name", "商品 ID 监控")
+    ai_prompt_text = task_config.get("ai_prompt_text", "")
+    analyze_images = _should_analyze_images(task_config)
+    decision_mode = str(task_config.get("decision_mode", "ai")).strip().lower()
+    if decision_mode not in {"ai", "keyword"}:
+        decision_mode = "ai"
+    keyword_rules = task_config.get("keyword_rules") or []
+
+    # 限制调试模式数量
+    if debug_limit > 0:
+        item_ids = item_ids[:debug_limit]
+
+    print(f"开始批量抓取 {len(item_ids)} 个商品 ID...")
+
+    # 创建分析分发器
+    seller_cache = SellerProfileCache()
+
+    def _get_seller_profile_cache_ttl(cfg: dict) -> int:
+        raw = cfg.get("seller_cache_ttl_hours", 24)
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            return 24
+
+    async def _load_seller_info(seller_id: str) -> dict:
+        return await seller_cache.fetch(seller_id)
+
+    async def _download_images(item_data: dict, image_urls: list, task_name: str) -> list:
+        if not image_urls:
+            return []
+        from src.ai_handler import download_all_images
+        return await download_all_images(image_urls, task_name, item_data)
+
+    async def _analyze_item(item_data: dict, image_paths: list, prompt: str) -> Optional[dict]:
+        from src.ai_handler import get_ai_analysis
+        return await get_ai_analysis(item_data, image_paths, prompt)
+
+    async def _send_notification(item_data: dict, reason: str) -> None:
+        from src.ai_handler import send_ntfy_notification
+        await send_ntfy_notification(item_data, reason)
+
+    async def _save_result(record: dict, kw: str) -> bool:
+        from src.services.result_storage_service import save_result_record
+        return await save_result_record(record, kw)
+
+    analysis_dispatcher = ItemAnalysisDispatcher(
+        concurrency=_get_ai_analysis_concurrency(task_config),
+        skip_ai_analysis=SKIP_AI_ANALYSIS,
+        seller_loader=_load_seller_info,
+        image_downloader=_download_images,
+        ai_analyzer=_analyze_item,
+        notifier=_send_notification,
+        saver=_save_result,
+    )
+
+    processed_count = 0
+
+    for item_id in item_ids:
+        try:
+            print(f"正在抓取商品 ID: {item_id}")
+            result = await scrape_item_by_id(item_id)
+            if not result:
+                print(f"   商品 {item_id} 获取失败，跳过")
+                continue
+
+            # 构建记录结构（与关键词搜索保持一致）
+            final_record = {
+                "搜索关键字": keyword,
+                "任务名称": task_name,
+                "爬取时间": datetime.now().isoformat(),
+                "商品信息": {
+                    "商品 ID": result.get("item_id"),
+                    "商品标题": result.get("商品标题"),
+                    "当前售价": result.get("当前售价"),
+                    "商品链接": result.get("商品链接"),
+                    "想要人数": result.get("想要人数"),
+                    "浏览量": result.get("浏览量"),
+                    "卖家 ID": result.get("卖家 ID"),
+                    "卖家昵称": result.get("卖家昵称"),
+                    "芝麻信用": result.get("芝麻信用"),
+                    "发布时间": None,  # 商品 ID 模式无发布时间
+                    "商品图片列表": result.get("商品图片列表", []),
+                },
+            }
+
+            # 提取卖家信息
+            seller_id = str(result.get("卖家 ID") or "")
+            zhima_credit_text = result.get("芝麻信用", "")
+            registration_duration_text = ""
+
+            # 提交分析任务
+            analysis_dispatcher.submit(
+                ItemAnalysisJob(
+                    keyword=keyword,
+                    task_name=task_name,
+                    decision_mode=decision_mode,
+                    analyze_images=analyze_images,
+                    prompt_text=ai_prompt_text,
+                    keyword_rules=tuple(keyword_rules),
+                    final_record=final_record,
+                    seller_id=seller_id if seller_id else None,
+                    zhima_credit_text=zhima_credit_text,
+                    registration_duration_text=registration_duration_text,
+                )
+            )
+            processed_count += 1
+
+        except Exception as e:
+            print(f"   商品 {item_id} 处理失败：{e}")
+            continue
+
+    # 等待所有分析任务完成
+    log_time("等待后台分析任务完成...")
+    await analysis_dispatcher.join()
+
+    print(f"批量抓取完成，成功处理 {processed_count}/{len(item_ids)} 个商品")
+    return processed_count

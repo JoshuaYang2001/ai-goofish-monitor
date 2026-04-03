@@ -77,17 +77,55 @@ async def run_ai_generation_job(
     scheduler_service: SchedulerService,
     generation_service: TaskGenerationService,
 ) -> None:
-    output_filename = build_criteria_filename(req.keyword)
     try:
         await advance_job(
             generation_service,
             job_id,
             "prepare",
-            "已接收请求，开始准备分析标准。",
+            "已接收请求，开始处理任务。",
         )
 
         async def report_progress(step_key: str, message: str) -> None:
             await advance_job(generation_service, job_id, step_key, message)
+
+        # 商品 ID 监控模式：跳过 AI 生成分析标准，直接创建任务
+        if req.task_type == "item_id":
+            await advance_job(
+                generation_service,
+                job_id,
+                "task",
+                "商品 ID 监控模式，直接创建任务记录。",
+            )
+            # 商品 ID 监控模式：直接访问商品详情页，不需要筛选条件
+            task = await task_service.create_task(TaskCreate(
+                task_name=req.task_name,
+                task_type="item_id",
+                enabled=True,
+                keyword=None,
+                item_id_list=req.item_id_list,
+                description="",  # 商品 ID 模式不需要 AI 生成标准
+                analyze_images=True,  # 默认开启图片分析
+                max_pages=1,  # 商品 ID 每次只查 1 个
+                personal_only=False,  # 详情页不需要卖家筛选
+                min_price=None,  # 详情页不需要价格筛选
+                max_price=None,
+                cron=req.cron,
+                ai_prompt_base_file="prompts/base_prompt.txt",
+                ai_prompt_criteria_file="",  # 不需要 AI 生成的分析标准
+                account_state_file=req.account_state_file,
+                account_strategy=req.account_strategy,
+                free_shipping=False,  # 详情页不需要运费筛选
+                new_publish_option="",  # 详情页不需要发布时间筛选
+                region=None,  # 详情页不需要地区筛选
+                decision_mode="ai",  # 固定使用 AI 分析
+                keyword_rules=[],  # 不需要关键词规则
+            ))
+            await reload_scheduler(task_service, scheduler_service)
+            await generation_service.complete(job_id, task, f"任务'{req.task_name}'创建完成。")
+            return
+
+        # 关键词模式：AI 生成分析标准
+        output_filename = build_criteria_filename(req.keyword or "")
 
         generated_criteria = await generate_criteria(
             user_description=req.description or "",
@@ -111,8 +149,6 @@ async def run_ai_generation_job(
         )
         task = await task_service.create_task(build_task_create(req, output_filename))
         await reload_scheduler(task_service, scheduler_service)
-        await generation_service.complete(job_id, task, f"任务“{req.task_name}”创建完成。")
+        await generation_service.complete(job_id, task, f"任务'{req.task_name}'创建完成。")
     except Exception as exc:
-        if os.path.exists(output_filename):
-            os.remove(output_filename)
-        await generation_service.fail(job_id, f"AI 任务生成失败: {exc}")
+        await generation_service.fail(job_id, f"AI 任务生成失败：{exc}")
