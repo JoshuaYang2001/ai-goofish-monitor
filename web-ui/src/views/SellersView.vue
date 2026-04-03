@@ -24,9 +24,10 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Trash2, Shield, ShieldAlert, UserPlus } from 'lucide-vue-next'
+import { Trash2, Shield, ShieldAlert, UserPlus, UserSearch } from 'lucide-vue-next'
 import { getBlacklist, getWhitelist, removeFromList, addToBlacklist, addToWhitelist } from '@/api/sellers'
 import type { SellerListResponse } from '@/types/seller.d.ts'
+import SellerSearch from '@/components/sellers/SellerSearch.vue'
 
 const { toast } = useToast()
 
@@ -148,6 +149,10 @@ onMounted(() => {
           白名单
           <Badge variant="secondary" class="ml-2">{{ whitelist.length }}</Badge>
         </TabsTrigger>
+        <TabsTrigger value="search">
+          <UserSearch class="w-4 h-4 mr-2" />
+          卖家搜索
+        </TabsTrigger>
       </TabsList>
 
       <TabsContent value="blacklist">
@@ -238,6 +243,10 @@ onMounted(() => {
             </div>
           </CardContent>
         </Card>
+      </TabsContent>
+
+      <TabsContent value="search">
+        <SellerSearch />
       </TabsContent>
     </Tabs>
 

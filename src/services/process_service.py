@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Awaitable, Callable, Dict, TextIO
 
 from src.ai_handler import send_ntfy_notification
-from src.config import STATE_FILE
+from src.config import get_state_file
 from src.failure_guard import FailureGuard
 from src.infrastructure.persistence.sqlite_task_repository import find_task_by_name_sync
 from src.utils import build_task_log_path
@@ -60,7 +60,8 @@ class ProcessService:
         except Exception:
             pass
 
-        return STATE_FILE if os.path.exists(STATE_FILE) else None
+        state_file = get_state_file()
+        return state_file if os.path.exists(state_file) else None
 
     def is_running(self, task_id: int) -> bool:
         """检查任务是否正在运行"""

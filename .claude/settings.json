@@ -5,7 +5,11 @@
       "Bash(git push:*)",
       "Bash(gh repo:*)",
       "Bash(gh workflow:*)",
-      "Bash(git remote:*)"
+      "Bash(git remote:*)",
+      "Bash(lsof -ti:8000)",
+      "Bash(xargs kill:*)",
+      "Bash(lsof -ti:5173)",
+      "Read(//private/tmp/**)"
     ]
   }
 }

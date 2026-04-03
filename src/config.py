@@ -8,10 +8,32 @@ from openai import AsyncOpenAI
 load_dotenv()
 
 # --- File Paths & Directories ---
-STATE_FILE = "xianyu_state.json"
+STATE_DIR = "state"
 IMAGE_SAVE_DIR = "images"
 CONFIG_FILE = "config.json"
 os.makedirs(IMAGE_SAVE_DIR, exist_ok=True)
+os.makedirs(STATE_DIR, exist_ok=True)
+
+# 动态获取状态文件（优先使用 state/ 目录下的账户文件）
+STATE_FILE = None  # 运行时通过 get_state_file() 获取
+
+
+def get_state_file() -> str:
+    """
+    获取当前使用的状态文件
+    优先返回 state/ 目录下的第一个账户文件，如果没有则返回 xianyu_state.json
+    """
+    import glob
+    # 优先使用 state/ 目录下的账户文件
+    state_files = glob.glob(os.path.join(STATE_DIR, "*.json"))
+    if state_files:
+        # 返回第一个账户文件
+        return sorted(state_files)[0]
+    # 回退到旧的 xianyu_state.json
+    legacy_file = "xianyu_state.json"
+    if os.path.exists(legacy_file):
+        return legacy_file
+    return os.path.join(STATE_DIR, "default.json")
 
 # 任务隔离的临时图片目录前缀
 TASK_IMAGE_DIR_PREFIX = "task_images_"

@@ -94,7 +94,7 @@ class ScraperSettings(_EnvSettings):
     run_headless: bool = _env_field(True, "RUN_HEADLESS")
     login_is_edge: bool = _env_field(False, "LOGIN_IS_EDGE")
     running_in_docker: bool = _env_field(False, "RUNNING_IN_DOCKER")
-    state_file: str = _env_field("xianyu_state.json", "STATE_FILE")
+    state_file: str = _env_field("state/default.json", "STATE_FILE")
 
 
 class AppSettings(_EnvSettings):

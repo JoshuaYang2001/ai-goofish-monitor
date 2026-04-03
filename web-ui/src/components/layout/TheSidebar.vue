@@ -9,6 +9,7 @@ import {
   Terminal,
   Settings2,
   ShieldAlert,
+  Target,
   ChevronRight
 } from 'lucide-vue-next'
 import { useWebSocket } from '@/composables/useWebSocket'
@@ -23,10 +24,11 @@ const { t } = useI18n()
 const navItems = computed(() => [
   { to: '/dashboard', label: t('sidebar.dashboard'), icon: LayoutDashboard },
   { to: '/tasks', label: t('sidebar.tasks'), icon: ListTodo },
+  { to: '/item-search', label: t('sidebar.itemSearch'), icon: Target },
+  { to: '/sellers', label: t('sidebar.sellers'), icon: ShieldAlert },
   { to: '/accounts', label: t('sidebar.accounts'), icon: Users },
   { to: '/results', label: t('sidebar.results'), icon: Layers },
   { to: '/logs', label: t('sidebar.logs'), icon: Terminal },
-  { to: '/sellers', label: t('sidebar.sellers'), icon: ShieldAlert },
   { to: '/settings', label: t('sidebar.settings'), icon: Settings2 },
 ])
 

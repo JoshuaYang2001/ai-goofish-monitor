@@ -7,7 +7,7 @@ import signal
 import contextlib
 import re
 
-from src.config import STATE_FILE
+from src.config import get_state_file
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.scraper import scrape_xianyu
 
@@ -44,7 +44,7 @@ async def main():
     else:
         repository = SqliteTaskRepository()
         tasks = await repository.find_all()
-        tasks_config = [task.dict() for task in tasks]
+        tasks_config = [task.model_dump() for task in tasks]
 
     def normalize_keywords(value):
         if value is None:
@@ -91,7 +91,8 @@ async def main():
                     return True
         return False
 
-    if not os.path.exists(STATE_FILE) and not has_bound_account(tasks_config) and not has_any_state_file():
+    state_file = get_state_file()
+    if not os.path.exists(state_file) and not has_bound_account(tasks_config) and not has_any_state_file():
         sys.exit(
             f"错误: 未找到登录状态文件。请在 state/ 中添加账号或配置 account_state_file。"
         )

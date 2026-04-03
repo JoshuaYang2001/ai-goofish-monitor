@@ -17,6 +17,8 @@ const enUS = {
     results: 'Results',
     logs: 'Logs',
     settings: 'Settings',
+    sellers: 'Sellers',
+    itemSearch: 'Item ID Search',
   },
   common: {
     cancel: 'Cancel',
@@ -64,6 +66,8 @@ const enUS = {
     accounts: 'Accounts',
     results: 'Results',
     logs: 'Logs',
+    sellers: 'Sellers',
+    itemSearch: 'Item ID Search',
     settings: 'Settings',
     systemStatus: 'System Status',
     backendConnected: 'Realtime backend connected',

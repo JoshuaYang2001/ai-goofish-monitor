@@ -3,7 +3,7 @@ import json
 import os
 import random
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 from urllib.parse import urlencode
 
 from playwright.async_api import (
@@ -25,7 +25,7 @@ from src.config import (
     RUN_HEADLESS,
     RUNNING_IN_DOCKER,
     SKIP_AI_ANALYSIS,
-    STATE_FILE,
+    get_state_file,
 )
 from src.parsers import (
     _parse_search_results_json,
@@ -481,12 +481,12 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
     runtime_plan = resolve_account_runtime_plan(
         strategy=task_config.get("account_strategy"),
         account_state_file=task_config.get("account_state_file"),
-        has_root_state_file=os.path.exists(STATE_FILE),
+        has_root_state_file=os.path.exists(get_state_file()),
         available_account_files=account_items,
     )
     forced_account = runtime_plan["forced_account"]
     if runtime_plan["prefer_root_state"]:
-        account_items = [STATE_FILE]
+        account_items = [get_state_file()]
         rotation_settings["account_enabled"] = False
     elif runtime_plan["use_account_pool"]:
         rotation_settings["account_enabled"] = True
@@ -510,8 +510,9 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
         if forced_account:
             return RotationItem(value=forced_account)
         if not rotation_settings["account_enabled"]:
-            if os.path.exists(STATE_FILE):
-                return RotationItem(value=STATE_FILE)
+            state_file = get_state_file()
+            if os.path.exists(state_file):
+                return RotationItem(value=state_file)
             return None
         if (
             rotation_settings["account_mode"] == "per_task"
@@ -1192,8 +1193,8 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
         and task_config.get("account_state_file").strip()
     ):
         pause_cookie_path = task_config.get("account_state_file").strip()
-    elif os.path.exists(STATE_FILE):
-        pause_cookie_path = STATE_FILE
+    elif os.path.exists(get_state_file()):
+        pause_cookie_path = get_state_file()
 
     decision = FAILURE_GUARD.should_skip_start(
         task_name_for_guard, cookie_path=pause_cookie_path
@@ -1253,7 +1254,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
             print(last_error)
             break
 
-        state_path = selected_account.value if selected_account else STATE_FILE
+        state_path = selected_account.value if selected_account else get_state_file()
         last_state_path = state_path
         proxy_server = selected_proxy.value if selected_proxy else None
         if rotation_settings["account_enabled"]:
@@ -1298,109 +1299,120 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
     Returns:
         商品信息字典，如果失败则返回 None
     """
-    from src.config import STATE_FILE, DETAIL_API_URL_PATTERN
+    from src.config import DETAIL_API_URL_PATTERN
     from src.parsers import parse_user_head_data
 
-    if not os.path.exists(STATE_FILE):
-        raise FileNotFoundError(f"登录状态文件不存在：{STATE_FILE}")
+    state_file = get_state_file()
+    if not os.path.exists(state_file):
+        raise FileNotFoundError(f"登录状态文件不存在：{state_file}")
 
     try:
-        with open(STATE_FILE, "r", encoding="utf-8") as f:
+        with open(state_file, "r", encoding="utf-8") as f:
             snapshot_data = json.load(f)
     except Exception as e:
         print(f"警告：读取登录状态文件失败：{e}")
         snapshot_data = None
 
-    async with async_playwright() as p:
-        launch_args = [
-            "--disable-blink-features=AutomationControlled",
-            "--disable-dev-shm-usage",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-        ]
+    try:
+        async with async_playwright() as p:
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ]
 
-        launch_kwargs = {"headless": RUN_HEADLESS, "args": launch_args}
-        launch_kwargs["channel"] = _resolve_browser_channel()
+            launch_kwargs = {"headless": RUN_HEADLESS, "args": launch_args}
+            launch_kwargs["channel"] = _resolve_browser_channel()
 
-        browser = await p.chromium.launch(**launch_kwargs)
+            browser = await p.chromium.launch(**launch_kwargs)
 
-        context_kwargs = _default_context_options()
-        storage_state_arg = STATE_FILE
+            context_kwargs = _default_context_options()
+            storage_state_arg = state_file
 
-        if isinstance(snapshot_data, dict) and any(
-            key in snapshot_data for key in ("env", "headers", "page", "storage")
-        ):
-            storage_state_arg = {"cookies": snapshot_data.get("cookies", [])}
-            context_kwargs.update(_build_context_overrides(snapshot_data))
-            extra_headers = _build_extra_headers(snapshot_data.get("headers"))
-            if extra_headers:
-                context_kwargs["extra_http_headers"] = extra_headers
+            if isinstance(snapshot_data, dict) and any(
+                key in snapshot_data for key in ("env", "headers", "page", "storage")
+            ):
+                storage_state_arg = {"cookies": snapshot_data.get("cookies", [])}
+                context_kwargs.update(_build_context_overrides(snapshot_data))
+                extra_headers = _build_extra_headers(snapshot_data.get("headers"))
+                if extra_headers:
+                    context_kwargs["extra_http_headers"] = extra_headers
 
-        context = await browser.new_context(
-            storage_state=storage_state_arg, **_clean_kwargs(context_kwargs)
-        )
+            context = await browser.new_context(
+                storage_state=storage_state_arg, **_clean_kwargs(context_kwargs)
+            )
 
-        try:
-            page = await context.new_page()
-
-            # 访问商品详情页
-            item_url = f"https://www.goofish.com/item/{item_id}.html"
-            await page.goto(item_url, wait_until="domcontentloaded", timeout=30000)
-
-            # 等待详情页 API 响应
             try:
-                async with page.expect_response(
-                    lambda r: DETAIL_API_URL_PATTERN in r.url, timeout=15000
-                ) as detail_info:
-                    pass
+                page = await context.new_page()
 
-                detail_response = await detail_info.value
-                if not detail_response.ok:
-                    print(f"获取商品详情 API 失败：{detail_response.status}")
+                # 访问商品详情页
+                item_url = f"https://www.goofish.com/item/{item_id}.html"
+                # 使用 networkidle 等待更多资源加载完成
+                await page.goto(item_url, wait_until="networkidle", timeout=60000)
+
+                # 等待详情页 API 响应 (延长超时时间)
+                try:
+                    async with page.expect_response(
+                        lambda r: DETAIL_API_URL_PATTERN in r.url, timeout=50000
+                    ) as detail_info:
+                        pass
+
+                    detail_response = await detail_info.value
+                    if not detail_response.ok:
+                        print(f"获取商品详情 API 失败：{detail_response.status}")
+                        return None
+
+                    detail_json = await detail_response.json()
+
+                    # 检查是否商品不存在
+                    ret_string = str(await safe_get(detail_json, "ret", default=[]))
+                    if "FAIL_SYS_USER_VALIDATE" in ret_string:
+                        raise RiskControlError("FAIL_SYS_USER_VALIDATE")
+
+                    item_do = await safe_get(detail_json, "data", "itemDO", default={})
+                    seller_do = await safe_get(detail_json, "data", "sellerDO", default={})
+
+                    if not item_do:
+                        print("商品详情数据为空，可能商品已下架")
+                        return None
+
+                    # 解析商品信息
+                    result = {
+                        "item_id": item_id,
+                        "商品标题": item_do.get("title", ""),
+                        "当前售价": item_do.get("price"),
+                        "商品链接": item_url,
+                        "想要人数": item_do.get("wantCnt"),
+                        "浏览量": item_do.get("browseCnt"),
+                        "卖家 ID": seller_do.get("sellerId"),
+                        "卖家昵称": seller_do.get("nick"),
+                        "芝麻信用": seller_do.get("zhimaLevelInfo", {}).get("levelName"),
+                    }
+
+                    # 提取图片列表
+                    image_infos = await safe_get(item_do, "imageInfos", default=[])
+                    if image_infos:
+                        result["商品图片列表"] = [
+                            img.get("url") for img in image_infos if img.get("url")
+                        ]
+
+                    return result
+
+                except PlaywrightTimeoutError:
+                    print("等待商品详情 API 超时")
+                    # 尝试从页面直接获取内容作为后备
+                    try:
+                        page_content = await page.content()
+                        if "FAIL_SYS_USER_VALIDATE" in page_content or "验证" in page_content:
+                            print("检测到风控验证页面")
+                            return None
+                    except:
+                        pass
                     return None
 
-                detail_json = await detail_response.json()
-
-                # 检查是否商品不存在
-                ret_string = str(await safe_get(detail_json, "ret", default=[]))
-                if "FAIL_SYS_USER_VALIDATE" in ret_string:
-                    raise RiskControlError("FAIL_SYS_USER_VALIDATE")
-
-                item_do = await safe_get(detail_json, "data", "itemDO", default={})
-                seller_do = await safe_get(detail_json, "data", "sellerDO", default={})
-
-                if not item_do:
-                    print("商品详情数据为空，可能商品已下架")
-                    return None
-
-                # 解析商品信息
-                result = {
-                    "item_id": item_id,
-                    "商品标题": item_do.get("title", ""),
-                    "当前售价": item_do.get("price"),
-                    "商品链接": item_url,
-                    "想要人数": item_do.get("wantCnt"),
-                    "浏览量": item_do.get("browseCnt"),
-                    "卖家 ID": seller_do.get("sellerId"),
-                    "卖家昵称": seller_do.get("nick"),
-                    "芝麻信用": seller_do.get("zhimaLevelInfo", {}).get("levelName"),
-                }
-
-                # 提取图片列表
-                image_infos = await safe_get(item_do, "imageInfos", default=[])
-                if image_infos:
-                    result["商品图片列表"] = [
-                        img.get("url") for img in image_infos if img.get("url")
-                    ]
-
-                return result
-
-            except PlaywrightTimeoutError:
-                print("等待商品详情 API 超时")
-                return None
-
-        finally:
-            await browser.close()
+            finally:
+                await browser.close()
 
     except Exception as e:
         print(f"通过 ID 获取商品详情失败：{e}")
