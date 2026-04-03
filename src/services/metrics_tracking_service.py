@@ -21,10 +21,32 @@ class MetricsTrackingService:
         browse_count: Optional[int],
         seller_id: Optional[str],
         link: Optional[str],
-    ) -> None:
-        """记录商品指标快照"""
+    ) -> bool:
+        """
+        记录商品指标快照（仅在价格或想要数变化时记录）
+        Returns: True 表示实际创建了记录，False 表示跳过（数据无变化）
+        """
         with sqlite_connection() as conn:
             snapshot_time = datetime.now().isoformat()
+
+            # 检查最新一条记录，如果价格和想要数都相同，则跳过记录
+            cursor = conn.execute(
+                """
+                SELECT price, want_count FROM item_metrics_history
+                WHERE item_id = ?
+                ORDER BY snapshot_time DESC LIMIT 1
+                """,
+                (item_id,),
+            )
+            last_record = cursor.fetchone()
+            if last_record:
+                last_price = last_record["price"]
+                last_want_count = last_record["want_count"]
+
+                # 如果价格和想要数都相同，跳过记录
+                if price == last_price and want_count == last_want_count:
+                    return False
+
             try:
                 conn.execute(
                     """
@@ -46,10 +68,12 @@ class MetricsTrackingService:
                     ),
                 )
                 conn.commit()
+                return True
             except Exception as e:
                 # 忽略重复记录（UNIQUE 约束冲突）
                 if "UNIQUE constraint failed" not in str(e):
                     print(f"记录指标历史失败：{e}")
+                return False
 
     def get_price_history(
         self, item_id: str, days: int = 30
@@ -259,79 +283,10 @@ class MetricsTrackingService:
             row = cursor.fetchone()
             return row["total"] if row else None
 
-    def get_want_count_diff_for_task(self, task_name: str) -> Optional[int]:
-        """获取任务下所有商品的想要数变化（当前 - 上次）"""
-        with sqlite_connection() as conn:
-            # 获取所有相关的 item_id
-            cursor = conn.execute(
-                """
-                SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?
-                """,
-                (task_name,),
-            )
-            rows = cursor.fetchall()
-            if not rows:
-                return None
-
-            # 计算每个商品的最新和上次想要数，然后求和差异
-            cursor = conn.execute(
-                f"""
-                SELECT
-                    SUM(COALESCE(current_want, 0) - COALESCE(prev_want, 0)) as total_diff
-                FROM (
-                    SELECT
-                        im.item_id,
-                        (SELECT want_count FROM item_metrics_history
-                         WHERE item_id = im.item_id AND want_count IS NOT NULL
-                         ORDER BY snapshot_time DESC LIMIT 1) as current_want,
-                        (SELECT want_count FROM item_metrics_history
-                         WHERE item_id = im.item_id AND want_count IS NOT NULL
-                         ORDER BY snapshot_time DESC LIMIT 1 OFFSET 1) as prev_want
-                    FROM (SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?) im
-                )
-                """,
-                (task_name,),
-            )
-            row = cursor.fetchone()
-            return row["total_diff"] if row and row["total_diff"] else 0
-
-    def get_latest_price_for_task(self, task_name: str) -> Optional[float]:
-        """获取任务下所有商品的最新价格（用于判断价格是否变化）"""
-        with sqlite_connection() as conn:
-            # 获取所有相关的 item_id
-            cursor = conn.execute(
-                """
-                SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?
-                """,
-                (task_name,),
-            )
-            rows = cursor.fetchall()
-            if not rows:
-                return None
-
-            # 计算每个商品的最新价格
-            cursor = conn.execute(
-                """
-                SELECT AVG(current_price) as avg_price
-                FROM (
-                    SELECT
-                        im.item_id,
-                        (SELECT price FROM item_metrics_history
-                         WHERE item_id = im.item_id AND price IS NOT NULL
-                         ORDER BY snapshot_time DESC LIMIT 1) as current_price
-                    FROM (SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?) im
-                )
-                WHERE current_price IS NOT NULL
-                """,
-                (task_name,),
-            )
-            row = cursor.fetchone()
-            if row and row["avg_price"] is not None:
-                return round(row["avg_price"], 2)
-            return None
-
     def get_price_diff_for_task(self, task_name: str) -> Optional[float]:
-        """获取任务下所有商品的价格变化（当前价格 - 上次不同的价格）"""
+        """获取任务下所有商品的价格变化（本次 - 上次，只在本次有新记录时返回）"""
+        from datetime import datetime, timedelta
+
         with sqlite_connection() as conn:
             # 获取所有相关的 item_id
             cursor = conn.execute(
@@ -348,14 +303,19 @@ class MetricsTrackingService:
             if not item_ids:
                 return None
 
-            # 对于每个 item，找到最新价格和上一个不同的价格
+            # 计算 5 分钟前的时间（用于判断是否是本次爬取新创建的记录）
+            now = datetime.now()
+            five_minutes_ago = (now - timedelta(minutes=5)).isoformat()
+
+            # 计算每个商品的最新和上次价格差异
             total_diff = 0.0
+            has_new_record = False  # 标记本次爬取是否有新记录
             count = 0
             for item_id in item_ids:
-                # 获取最新价格
+                # 获取最新价格和时间
                 cursor = conn.execute(
                     """
-                    SELECT price FROM item_metrics_history
+                    SELECT price, snapshot_time FROM item_metrics_history
                     WHERE item_id = ? AND price IS NOT NULL
                     ORDER BY snapshot_time DESC LIMIT 1
                     """,
@@ -364,27 +324,115 @@ class MetricsTrackingService:
                 current_row = cursor.fetchone()
                 if not current_row:
                     continue
-                current_price = current_row["price"]
 
-                # 获取上一个**不同**的价格（跳过所有与当前价格相同的记录）
+                current_price = current_row["price"]
+                current_time = current_row["snapshot_time"]
+
+                # 如果最新记录不是最近 5 分钟内创建的，说明本次爬取没有新变化
+                if current_time < five_minutes_ago:
+                    continue
+
+                # 标记本次爬取有新记录
+                has_new_record = True
+
+                # 获取上次价格（直接取上一条记录）
                 cursor = conn.execute(
                     """
                     SELECT price FROM item_metrics_history
-                    WHERE item_id = ? AND price IS NOT NULL AND price != ?
-                    ORDER BY snapshot_time DESC LIMIT 1
+                    WHERE item_id = ? AND price IS NOT NULL
+                    ORDER BY snapshot_time DESC LIMIT 1 OFFSET 1
                     """,
-                    (item_id, current_price),
+                    (item_id,),
                 )
                 prev_row = cursor.fetchone()
-                if not prev_row:
-                    continue
-                prev_price = prev_row["price"]
+                if not prev_row or prev_row["price"] is None:
+                    # 没有上次价格，使用当前价格作为基准（避免首次记录时计算错误）
+                    prev_price = current_price
+                else:
+                    prev_price = prev_row["price"]
 
                 total_diff += (current_price - prev_price)
                 count += 1
 
-            if count > 0:
+            # 只有当本次爬取实际产生了新记录时，才返回价格差异
+            if has_new_record and count > 0:
                 return round(total_diff / count, 2)
+            return None
+
+    def get_want_count_diff_for_task(self, task_name: str) -> Optional[int]:
+        """获取任务下所有商品的想要数变化（本次 - 上次，只在本次有新记录时返回）"""
+        from datetime import datetime, timedelta
+
+        with sqlite_connection() as conn:
+            # 获取所有相关的 item_id
+            cursor = conn.execute(
+                """
+                SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?
+                """,
+                (task_name,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+
+            item_ids = [row["item_id"] for row in rows]
+            if not item_ids:
+                return None
+
+            # 计算 5 分钟前的时间（用于判断是否是本次爬取新创建的记录）
+            now = datetime.now()
+            five_minutes_ago = (now - timedelta(minutes=5)).isoformat()
+
+            # 计算每个商品的最新和上次想要数差异
+            total_diff = 0
+            has_new_record = False  # 标记本次爬取是否有新记录
+            count = 0
+            for item_id in item_ids:
+                # 获取最新想要数和时间
+                cursor = conn.execute(
+                    """
+                    SELECT want_count, snapshot_time FROM item_metrics_history
+                    WHERE item_id = ? AND want_count IS NOT NULL
+                    ORDER BY snapshot_time DESC LIMIT 1
+                    """,
+                    (item_id,),
+                )
+                current_row = cursor.fetchone()
+                if not current_row:
+                    continue
+
+                current_want = current_row["want_count"]
+                current_time = current_row["snapshot_time"]
+
+                # 如果最新记录不是最近 5 分钟内创建的，说明本次爬取没有新变化
+                if current_time < five_minutes_ago:
+                    continue
+
+                # 标记本次爬取有新记录
+                has_new_record = True
+
+                # 获取上次想要数（直接取上一条记录）
+                cursor = conn.execute(
+                    """
+                    SELECT want_count FROM item_metrics_history
+                    WHERE item_id = ? AND want_count IS NOT NULL
+                    ORDER BY snapshot_time DESC LIMIT 1 OFFSET 1
+                    """,
+                    (item_id,),
+                )
+                prev_row = cursor.fetchone()
+                if not prev_row or prev_row["want_count"] is None:
+                    # 没有上次想要数，使用当前值作为基准（避免首次记录时计算错误）
+                    prev_want = current_want
+                else:
+                    prev_want = prev_row["want_count"]
+
+                total_diff += (current_want - prev_want)
+                count += 1
+
+            # 只有当本次爬取实际产生了新记录时，才返回想要数差异
+            if has_new_record and count > 0:
+                return total_diff
             return None
 
 
