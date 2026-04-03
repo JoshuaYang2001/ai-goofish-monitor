@@ -24,8 +24,8 @@ from src.config import (
     LOGIN_IS_EDGE,
     RUN_HEADLESS,
     RUNNING_IN_DOCKER,
-    SKIP_AI_ANALYSIS,
     get_state_file,
+    is_ai_enabled,
 )
 from src.parsers import (
     _parse_search_results_json,
@@ -597,7 +597,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
             )
             analysis_dispatcher = ItemAnalysisDispatcher(
                 concurrency=_get_ai_analysis_concurrency(task_config),
-                skip_ai_analysis=SKIP_AI_ANALYSIS,
+                skip_ai_analysis=not is_ai_enabled(),
                 seller_loader=lambda user_id: seller_profile_cache.get_or_load(
                     str(user_id),
                     lambda seller_key: scrape_user_profile(context, seller_key),
@@ -1505,7 +1505,7 @@ async def scrape_items_by_id_batch(
 
     analysis_dispatcher = ItemAnalysisDispatcher(
         concurrency=_get_ai_analysis_concurrency(task_config),
-        skip_ai_analysis=SKIP_AI_ANALYSIS,
+        skip_ai_analysis=not is_ai_enabled(),
         seller_loader=_load_seller_info,
         image_downloader=_download_images,
         ai_analyzer=_analyze_item,

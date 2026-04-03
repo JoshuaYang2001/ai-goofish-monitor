@@ -69,6 +69,22 @@ SKIP_AI_ANALYSIS = os.getenv("SKIP_AI_ANALYSIS", "false").lower() == "true"
 ENABLE_THINKING = os.getenv("ENABLE_THINKING", "false").lower() == "true"
 ENABLE_RESPONSE_FORMAT = os.getenv("ENABLE_RESPONSE_FORMAT", "true").lower() == "true"
 
+
+def is_ai_enabled() -> bool:
+    """检查 AI 功能是否启用（结合环境变量和数据库开关）"""
+    # 首先检查环境变量 SKIP_AI_ANALYSIS（优先级更高）
+    if os.getenv("SKIP_AI_ANALYSIS", "false").lower() == "true":
+        return False
+
+    # 然后检查数据库中的开关状态
+    try:
+        from src.services.ai_toggle_service import get_ai_toggle_service
+        service = get_ai_toggle_service()
+        return service.get_ai_enabled()
+    except Exception:
+        # 如果数据库不可用，返回默认值 True
+        return True
+
 # --- Headers ---
 IMAGE_DOWNLOAD_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:139.0) Gecko/20100101 Firefox/139.0',

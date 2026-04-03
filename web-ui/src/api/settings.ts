@@ -178,3 +178,18 @@ export async function updateLoginState(content: string): Promise<{ message: stri
 export async function deleteLoginState(): Promise<{ message: string }> {
   return await http('/api/login-state', { method: 'DELETE' })
 }
+
+// ===== AI Toggle API =====
+
+export async function getAiEnabled(): Promise<boolean> {
+  const response = await http('/api/settings/ai-enabled')
+  return response.ai_enabled
+}
+
+export async function setAiEnabled(enabled: boolean): Promise<{ message: string; ai_enabled: boolean }> {
+  return await http('/api/settings/ai-enabled', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled })
+  })
+}

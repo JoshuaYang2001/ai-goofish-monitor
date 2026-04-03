@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDashboard } from '@/composables/useDashboard'
+import { useSettings } from '@/composables/useSettings'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import Badge from '@/components/ui/badge/Badge.vue'
@@ -21,6 +22,7 @@ import {
 
 const router = useRouter()
 const { t } = useI18n()
+const { isAiEnabled: isAiEnabledGlobal } = useSettings()
 const {
   focusInsights,
   focusTask,
@@ -276,7 +278,8 @@ function openActivity(activity: { filename: string | null; type: string }) {
             </button>
           </CardContent>
         </Card>
-        <div class="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-2xl p-6 text-white shadow-lg shadow-indigo-200">
+        <!-- AI Strategy Card - Only show when AI is enabled -->
+        <div v-if="isAiEnabledGlobal" class="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-2xl p-6 text-white shadow-lg shadow-indigo-200">
           <div class="flex items-center gap-2 mb-4">
             <Zap class="w-6 h-6 text-amber-300" />
             <h4 class="font-bold text-lg">{{ t('dashboard.suggestion.sectionTitle') }}</h4>

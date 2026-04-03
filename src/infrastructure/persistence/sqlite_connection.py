@@ -181,6 +181,17 @@ SCHEMA_STATEMENTS = (
     """
     CREATE INDEX IF NOT EXISTS idx_search_history_type_time ON search_history(search_type, searched_at DESC)
     """,
+    # ===== 新增表：应用设置表 =====
+    """
+    CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_app_settings_key ON app_settings(key)
+    """,
 )
 
 
@@ -201,6 +212,11 @@ def _apply_pragmas(conn: sqlite3.Connection) -> None:
 def init_schema(conn: sqlite3.Connection) -> None:
     for statement in SCHEMA_STATEMENTS:
         conn.execute(statement)
+    # 初始化 AI 开关默认值
+    conn.execute("""
+        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
+        VALUES ('ai_enabled', 'true', datetime('now'))
+    """)
     conn.commit()
 
 

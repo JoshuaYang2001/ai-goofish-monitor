@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useSettings } from '@/composables/useSettings'
 import type { ResultItem } from '@/types/result.d.ts'
 import {
   Card,
@@ -12,6 +13,8 @@ import {
 import Badge from '@/components/ui/badge/Badge.vue'
 import { ExternalLink, TrendingUp, TrendingDown, Info, User, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-vue-next'
 import { formatDateTime } from '@/i18n'
+
+const { isAiEnabled: isAiEnabledGlobal } = useSettings()
 
 interface Props {
   item: ResultItem
@@ -81,8 +84,8 @@ const expanded = ref(false)
     </CardHeader>
 
     <CardContent class="p-4 pt-2 flex-grow">
-      <!-- AI Insight Section -->
-      <div class="rounded-xl p-3 border border-slate-100" :class="recommendationStatus.bg">
+      <!-- AI Insight Section - Only show when AI is enabled -->
+      <div v-if="isAiEnabledGlobal" class="rounded-xl p-3 border border-slate-100" :class="recommendationStatus.bg">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2">
             <component :is="recommendationStatus.icon" class="w-4 h-4" :class="recommendationStatus.text" />
@@ -93,10 +96,10 @@ const expanded = ref(false)
              <span class="text-sm font-black" :class="recommendationStatus.text">{{ matchScore }}%</span>
           </div>
         </div>
-        
+
         <div class="w-full h-1.5 bg-white/50 rounded-full overflow-hidden mb-3">
-          <div 
-            class="h-full transition-all duration-1000 ease-out rounded-full" 
+          <div
+            class="h-full transition-all duration-1000 ease-out rounded-full"
             :class="recommendationStatus.color"
             :style="{ width: `${matchScore}%` }"
           ></div>
@@ -105,10 +108,10 @@ const expanded = ref(false)
         <p class="text-xs leading-relaxed text-slate-600" :class="{ 'line-clamp-2': !expanded }">
            {{ ai?.reason || t('results.card.analyzing') }}
         </p>
-        
-        <button 
+
+        <button
           v-if="ai?.reason && ai.reason.length > 50"
-          @click="expanded = !expanded" 
+          @click="expanded = !expanded"
           class="mt-1 text-[10px] font-bold uppercase text-primary/70 hover:text-primary transition-colors flex items-center gap-1"
         >
           {{ expanded ? t('results.card.collapse') : t('results.card.expand') }}

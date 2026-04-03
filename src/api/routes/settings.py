@@ -24,6 +24,7 @@ from src.services.ai_request_compat import (
     is_responses_api_unsupported_error,
 )
 from src.services.ai_response_parser import extract_ai_response_content
+from src.services.ai_toggle_service import get_ai_toggle_service
 from src.services.notification_config_service import (
     NotificationSettingsValidationError,
     build_configured_channels,
@@ -345,3 +346,26 @@ async def test_ai_settings(settings: dict):
             "success": False,
             "message": f"AI模型连接测试失败: {exc}",
         }
+
+
+from pydantic import BaseModel
+
+# ... (existing imports)
+
+class AiEnabledRequest(BaseModel):
+    enabled: bool
+
+
+@router.get("/ai-enabled")
+async def get_ai_enabled():
+    """获取 AI 功能开关状态"""
+    service = get_ai_toggle_service()
+    return {"ai_enabled": service.get_ai_enabled()}
+
+
+@router.put("/ai-enabled")
+async def set_ai_enabled(request: AiEnabledRequest):
+    """设置 AI 功能开关状态"""
+    service = get_ai_toggle_service()
+    service.set_ai_enabled(request.enabled)
+    return {"message": "AI 功能开关已更新", "ai_enabled": request.enabled}

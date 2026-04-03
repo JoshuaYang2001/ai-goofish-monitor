@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useSettings } from '@/composables/useSettings'
 import type { Task, TaskGenerateRequest } from '@/types/task.d.ts'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,6 +11,8 @@ import { toast } from '@/components/ui/toast'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import TaskRegionSelector from '@/components/tasks/TaskRegionSelector.vue'
+
+const { isAiEnabled: isAiEnabledGlobal } = useSettings()
 
 type FormMode = 'create' | 'edit'
 type EmittedData = TaskGenerateRequest | Partial<Task>
@@ -377,28 +380,31 @@ function handleSubmit() {
             </Select>
           </div>
         </div>
-        <div class="grid grid-cols-4 items-center gap-4">
-          <Label for="description" class="text-right">{{ t('tasks.form.description') }}</Label>
-          <div class="col-span-3 space-y-1">
-            <Textarea
-              id="description"
-              v-model="form.description"
-              :placeholder="t('tasks.form.descriptionPlaceholder')"
-            />
-            <p v-if="form.decision_mode === 'keyword'" class="text-xs text-gray-500">
-              {{ t('tasks.form.keywordDescriptionHint') }}
-            </p>
+        <!-- AI 功能启用时才显示 description 和 analyze_images -->
+        <template v-if="isAiEnabledGlobal">
+          <div class="grid grid-cols-4 items-center gap-4">
+            <Label for="description" class="text-right">{{ t('tasks.form.description') }}</Label>
+            <div class="col-span-3 space-y-1">
+              <Textarea
+                id="description"
+                v-model="form.description"
+                :placeholder="t('tasks.form.descriptionPlaceholder')"
+              />
+              <p v-if="form.decision_mode === 'keyword'" class="text-xs text-gray-500">
+                {{ t('tasks.form.keywordDescriptionHint') }}
+              </p>
+            </div>
           </div>
-        </div>
-        <div v-if="form.decision_mode === 'ai'" class="grid grid-cols-4 items-center gap-4">
-          <Label for="analyze-images" class="text-right">{{ t('tasks.form.analyzeImages') }}</Label>
-          <div class="col-span-3 space-y-1">
-            <Switch id="analyze-images" v-model="form.analyze_images" />
-            <p class="text-xs text-gray-500">
-              {{ t('tasks.form.analyzeImagesHint') }}
-            </p>
+          <div v-if="form.decision_mode === 'ai'" class="grid grid-cols-4 items-center gap-4">
+            <Label for="analyze-images" class="text-right">{{ t('tasks.form.analyzeImages') }}</Label>
+            <div class="col-span-3 space-y-1">
+              <Switch id="analyze-images" v-model="form.analyze_images" />
+              <p class="text-xs text-gray-500">
+                {{ t('tasks.form.analyzeImagesHint') }}
+              </p>
+            </div>
           </div>
-        </div>
+        </template>
 
         <div v-if="form.decision_mode === 'keyword'" class="grid grid-cols-4 gap-4">
           <Label class="text-right pt-2">{{ t('tasks.form.keywordRules') }}</Label>

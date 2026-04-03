@@ -4,8 +4,6 @@ import { useToast } from '@/components/ui/toast/use-toast'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Search, User, Star, CreditCard } from 'lucide-vue-next'
 import { getSellerInfo } from '@/api/sellers'
 

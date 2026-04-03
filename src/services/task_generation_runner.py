@@ -5,6 +5,7 @@ import os
 
 import aiofiles
 
+from src.config import is_ai_enabled
 from src.domain.models.task import TaskCreate, TaskGenerateRequest
 from src.prompt_utils import generate_criteria
 from src.services.scheduler_service import SchedulerService
@@ -124,22 +125,35 @@ async def run_ai_generation_job(
             await generation_service.complete(job_id, task, f"任务'{req.task_name}'创建完成。")
             return
 
-        # 关键词模式：AI 生成分析标准
-        output_filename = build_criteria_filename(req.keyword or "")
-
-        generated_criteria = await generate_criteria(
-            user_description=req.description or "",
-            reference_file_path="prompts/macbook_criteria.txt",
-            progress_callback=report_progress,
-        )
-
-        await advance_job(
-            generation_service,
-            job_id,
-            "persist",
-            f"正在保存分析标准到 {output_filename}。",
-        )
-        await save_generated_criteria(output_filename, generated_criteria)
+        # 检查 AI 功能开关状态
+        if not is_ai_enabled():
+            # AI 功能被禁用，使用默认 criteria 文件
+            output_filename = build_criteria_filename(req.keyword or "")
+            await advance_job(
+                generation_service,
+                job_id,
+                "persist",
+                f"AI 功能已禁用，使用默认分析标准。",
+            )
+            # 使用基础的 prompt 作为 criteria
+            default_criteria = """基于用户需求，推荐值得购买的商品。
+关注商品的质量、价格合理性、卖家信誉等关键因素。"""
+            await save_generated_criteria(output_filename, default_criteria)
+        else:
+            # AI 功能启用，正常生成分析标准
+            output_filename = build_criteria_filename(req.keyword or "")
+            generated_criteria = await generate_criteria(
+                user_description=req.description or "",
+                reference_file_path="prompts/macbook_criteria.txt",
+                progress_callback=report_progress,
+            )
+            await advance_job(
+                generation_service,
+                job_id,
+                "persist",
+                f"正在保存分析标准到 {output_filename}。",
+            )
+            await save_generated_criteria(output_filename, generated_criteria)
 
         await advance_job(
             generation_service,
