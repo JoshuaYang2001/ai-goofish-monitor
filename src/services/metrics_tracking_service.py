@@ -295,8 +295,8 @@ class MetricsTrackingService:
             row = cursor.fetchone()
             return row["total_diff"] if row and row["total_diff"] else 0
 
-    def get_price_diff_for_task(self, task_name: str) -> Optional[float]:
-        """获取任务下所有商品的价格变化（当前 - 上次）"""
+    def get_latest_price_for_task(self, task_name: str) -> Optional[float]:
+        """获取任务下所有商品的最新价格（用于判断价格是否变化）"""
         with sqlite_connection() as conn:
             # 获取所有相关的 item_id
             cursor = conn.execute(
@@ -309,28 +309,82 @@ class MetricsTrackingService:
             if not rows:
                 return None
 
-            # 计算每个商品的最新和上次价格，然后求平均差异
+            # 计算每个商品的最新价格
             cursor = conn.execute(
-                f"""
-                SELECT AVG(current_price - prev_price) as avg_diff
+                """
+                SELECT AVG(current_price) as avg_price
                 FROM (
                     SELECT
                         im.item_id,
                         (SELECT price FROM item_metrics_history
                          WHERE item_id = im.item_id AND price IS NOT NULL
-                         ORDER BY snapshot_time DESC LIMIT 1) as current_price,
-                        (SELECT price FROM item_metrics_history
-                         WHERE item_id = im.item_id AND price IS NOT NULL
-                         ORDER BY snapshot_time DESC LIMIT 1 OFFSET 1) as prev_price
+                         ORDER BY snapshot_time DESC LIMIT 1) as current_price
                     FROM (SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?) im
                 )
-                WHERE current_price IS NOT NULL AND prev_price IS NOT NULL
+                WHERE current_price IS NOT NULL
                 """,
                 (task_name,),
             )
             row = cursor.fetchone()
-            if row and row["avg_diff"] is not None:
-                return round(row["avg_diff"], 2)
+            if row and row["avg_price"] is not None:
+                return round(row["avg_price"], 2)
+            return None
+
+    def get_price_diff_for_task(self, task_name: str) -> Optional[float]:
+        """获取任务下所有商品的价格变化（当前价格 - 上次不同的价格）"""
+        with sqlite_connection() as conn:
+            # 获取所有相关的 item_id
+            cursor = conn.execute(
+                """
+                SELECT DISTINCT item_id FROM price_snapshots WHERE keyword = ?
+                """,
+                (task_name,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return None
+
+            item_ids = [row["item_id"] for row in rows]
+            if not item_ids:
+                return None
+
+            # 对于每个 item，找到最新价格和上一个不同的价格
+            total_diff = 0.0
+            count = 0
+            for item_id in item_ids:
+                # 获取最新价格
+                cursor = conn.execute(
+                    """
+                    SELECT price FROM item_metrics_history
+                    WHERE item_id = ? AND price IS NOT NULL
+                    ORDER BY snapshot_time DESC LIMIT 1
+                    """,
+                    (item_id,),
+                )
+                current_row = cursor.fetchone()
+                if not current_row:
+                    continue
+                current_price = current_row["price"]
+
+                # 获取上一个**不同**的价格（跳过所有与当前价格相同的记录）
+                cursor = conn.execute(
+                    """
+                    SELECT price FROM item_metrics_history
+                    WHERE item_id = ? AND price IS NOT NULL AND price != ?
+                    ORDER BY snapshot_time DESC LIMIT 1
+                    """,
+                    (item_id, current_price),
+                )
+                prev_row = cursor.fetchone()
+                if not prev_row:
+                    continue
+                prev_price = prev_row["price"]
+
+                total_diff += (current_price - prev_price)
+                count += 1
+
+            if count > 0:
+                return round(total_diff / count, 2)
             return None
 
 
