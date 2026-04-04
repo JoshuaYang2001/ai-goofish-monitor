@@ -184,7 +184,6 @@ export function useResults() {
     })
 
     // 刷新文件列表和结果
-    const oldFile = selectedFile.value
     await fetchFiles()
     // 如果文件列表有新的文件，自动刷新
     if (files.value.length > 0) {
