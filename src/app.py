@@ -168,6 +168,15 @@ async def read_root(request: Request):
         )
 
 
+# 提供 PWA manifest 文件
+@app.get("/manifest.webmanifest")
+async def get_manifest():
+    """提供 PWA manifest 文件"""
+    if os.path.exists("dist/manifest.webmanifest"):
+        return FileResponse("dist/manifest.webmanifest", media_type="application/manifest+json")
+    return JSONResponse(status_code=404, content={"error": "manifest 文件未找到"})
+
+
 # Catch-all 路由 - 处理所有前端路由（必须放在最后）
 @app.get("/{full_path:path}")
 async def serve_spa(request: Request, full_path: str):
@@ -176,7 +185,7 @@ async def serve_spa(request: Request, full_path: str):
     这样可以支持 Vue Router 的 HTML5 History 模式
     """
     # 如果请求的是静态资源（如 favicon.ico），返回 404
-    if full_path.endswith(('.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.css', '.js', '.json')):
+    if full_path.endswith(('.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.css', '.js', '.json', '.webmanifest')):
         return JSONResponse(status_code=404, content={"error": "资源未找到"})
 
     # 其他所有路径都返回 index.html，让前端路由处理
