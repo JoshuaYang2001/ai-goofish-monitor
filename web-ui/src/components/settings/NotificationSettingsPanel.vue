@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import type { NotificationSettings, NotificationSettingsUpdate, NotificationTestResponse } from '@/api/settings'
 
-type ChannelKey = 'ntfy' | 'bark' | 'gotify' | 'wecom' | 'telegram' | 'webhook'
+type ChannelKey = 'ntfy' | 'bark' | 'gotify' | 'wecom' | 'telegram' | 'feishu' | 'webhook'
 
 const props = defineProps<{
   settings: NotificationSettings
@@ -37,13 +37,14 @@ const mutableInitialValues = initialValues as Record<string, string | boolean | 
 const mutableForm = form as Record<string, string | boolean | null | undefined>
 const mutableClearedFields = clearedFields as Record<string, boolean>
 
-const secretFields = ['BARK_URL', 'GOTIFY_TOKEN', 'WX_BOT_URL', 'TELEGRAM_BOT_TOKEN', 'WEBHOOK_URL', 'WEBHOOK_HEADERS'] as const
+const secretFields = ['BARK_URL', 'GOTIFY_TOKEN', 'WX_BOT_URL', 'TELEGRAM_BOT_TOKEN', 'FEISHU_WEBHOOK_URL', 'WEBHOOK_URL', 'WEBHOOK_HEADERS'] as const
 const channelFields: Record<ChannelKey, (keyof NotificationSettingsUpdate)[]> = {
   ntfy: ['NTFY_TOPIC_URL'],
   bark: ['BARK_URL'],
   gotify: ['GOTIFY_URL', 'GOTIFY_TOKEN'],
   wecom: ['WX_BOT_URL'],
   telegram: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'TELEGRAM_API_BASE_URL'],
+  feishu: ['FEISHU_WEBHOOK_URL'],
   webhook: ['WEBHOOK_URL', 'WEBHOOK_METHOD', 'WEBHOOK_CONTENT_TYPE', 'WEBHOOK_HEADERS', 'WEBHOOK_QUERY_PARAMETERS', 'WEBHOOK_BODY'],
 }
 
@@ -71,6 +72,7 @@ function syncFromSettings(settings: NotificationSettings) {
   secretConfigured.GOTIFY_TOKEN = !!settings.GOTIFY_TOKEN_SET
   secretConfigured.WX_BOT_URL = !!settings.WX_BOT_URL_SET
   secretConfigured.TELEGRAM_BOT_TOKEN = !!settings.TELEGRAM_BOT_TOKEN_SET
+  secretConfigured.FEISHU_WEBHOOK_URL = !!settings.FEISHU_WEBHOOK_URL_SET
   secretConfigured.WEBHOOK_URL = !!settings.WEBHOOK_URL_SET
   secretConfigured.WEBHOOK_HEADERS = !!settings.WEBHOOK_HEADERS_SET
 
@@ -275,6 +277,26 @@ function resolveChannelBadge(channel: ChannelKey) {
             <div class="grid gap-2"><Label>{{ t('notifyPanel.telegram.apiBaseUrl') }}</Label><Input :model-value="form.TELEGRAM_API_BASE_URL ?? ''" placeholder="https://api.telegram.org" @update:model-value="(value) => updateField('TELEGRAM_API_BASE_URL', String(value))" /></div>
           </CardContent>
           <CardFooter class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><Badge :variant="isChannelConfigured('telegram') ? 'default' : 'outline'">{{ resolveChannelBadge('telegram') }}</Badge><div class="flex flex-wrap gap-2"><Button variant="ghost" size="sm" :disabled="props.isSaving" @click="clearChannel('telegram')"><Trash2 class="h-4 w-4" />{{ t('notifyPanel.clear') }}</Button><Button variant="outline" size="sm" :disabled="props.isSaving" @click="handleTest('telegram')"><TestTube2 class="h-4 w-4" />{{ t('notifyPanel.test') }}</Button></div></CardFooter>
+        </Card>
+
+        <Card class="app-surface-subtle overflow-hidden border-l-4 border-l-blue-500">
+          <CardHeader><CardTitle>飞书 (Feishu)</CardTitle><CardDescription>{{ t('notifyPanel.feishu.description') }}</CardDescription></CardHeader>
+          <CardContent class="space-y-2">
+            <Label>Webhook URL</Label>
+            <Input :model-value="form.FEISHU_WEBHOOK_URL ?? ''" :placeholder="t('notifyPanel.secretPlaceholder')" @update:model-value="(value) => updateSecretField('FEISHU_WEBHOOK_URL', String(value))" />
+            <p class="text-xs text-slate-500">{{ secretConfigured.FEISHU_WEBHOOK_URL ? t('notifyPanel.feishu.configuredHint') : t('notifyPanel.notConfigured') }}</p>
+          </CardContent>
+          <CardFooter class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Badge :variant="isChannelConfigured('feishu') ? 'default' : 'outline'">{{ resolveChannelBadge('feishu') }}</Badge>
+            <div class="flex flex-wrap gap-2">
+              <Button variant="ghost" size="sm" :disabled="props.isSaving" @click="clearChannel('feishu')">
+                <Trash2 class="h-4 w-4" />{{ t('notifyPanel.clear') }}
+              </Button>
+              <Button variant="outline" size="sm" :disabled="props.isSaving" @click="handleTest('feishu')">
+                <TestTube2 class="h-4 w-4" />{{ t('notifyPanel.test') }}
+              </Button>
+            </div>
+          </CardFooter>
         </Card>
       </div>
 

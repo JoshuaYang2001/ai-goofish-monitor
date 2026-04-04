@@ -255,6 +255,10 @@ const enUSExtra = {
       chatIdPlaceholder: 'Example: 123456789',
       apiBaseUrl: 'API / Proxy Base URL',
     },
+    feishu: {
+      description: 'Feishu (Lark) bot webhook with rich text card messages.',
+      configuredHint: 'Feishu webhook URL is already stored.',
+    },
     webhook: {
       title: 'Generic Webhook',
       description: 'Supports JSON template variables. URL and headers are treated as sensitive and are not echoed back.',

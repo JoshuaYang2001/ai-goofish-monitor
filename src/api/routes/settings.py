@@ -88,6 +88,7 @@ class NotificationSettingsModel(BaseModel):
     WEBHOOK_QUERY_PARAMETERS: Optional[str] = None
     WEBHOOK_BODY: Optional[str] = None
     PCURL_TO_MOBILE: Optional[bool] = None
+    FEISHU_WEBHOOK_URL: Optional[str] = None
 
 
 class NotificationTestRequest(BaseModel):

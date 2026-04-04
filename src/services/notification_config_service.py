@@ -27,6 +27,7 @@ NOTIFICATION_FIELD_MAP = {
     "WEBHOOK_QUERY_PARAMETERS": "webhook_query_parameters",
     "WEBHOOK_BODY": "webhook_body",
     "PCURL_TO_MOBILE": "pcurl_to_mobile",
+    "FEISHU_WEBHOOK_URL": "feishu_webhook_url",
 }
 
 CHANNEL_NOTIFICATION_FIELDS = {
@@ -39,6 +40,7 @@ CHANNEL_NOTIFICATION_FIELDS = {
         "TELEGRAM_CHAT_ID",
         "TELEGRAM_API_BASE_URL",
     },
+    "feishu": {"FEISHU_WEBHOOK_URL"},
     "webhook": {
         "WEBHOOK_URL",
         "WEBHOOK_METHOD",
@@ -54,6 +56,7 @@ SECRET_NOTIFICATION_FIELDS = {
     "GOTIFY_TOKEN",
     "WX_BOT_URL",
     "TELEGRAM_BOT_TOKEN",
+    "FEISHU_WEBHOOK_URL",
     "WEBHOOK_URL",
     "WEBHOOK_HEADERS",
 }
@@ -110,6 +113,7 @@ def build_notification_settings_response(
         "WEBHOOK_QUERY_PARAMETERS": notification_settings.webhook_query_parameters or "",
         "WEBHOOK_BODY": notification_settings.webhook_body or "",
         "PCURL_TO_MOBILE": notification_settings.pcurl_to_mobile,
+        "FEISHU_WEBHOOK_URL": "",
     }
     for field in SECRET_NOTIFICATION_FIELDS:
         attr_name = NOTIFICATION_FIELD_MAP[field]
@@ -150,6 +154,8 @@ def build_configured_channels(
         channels.append("wecom")
     if notification_settings.telegram_bot_token and notification_settings.telegram_chat_id:
         channels.append("telegram")
+    if notification_settings.feishu_webhook_url:
+        channels.append("feishu")
     if notification_settings.webhook_url:
         channels.append("webhook")
     return channels

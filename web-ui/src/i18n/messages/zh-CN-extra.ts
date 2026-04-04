@@ -255,6 +255,10 @@ const zhCNExtra = {
       chatIdPlaceholder: '例如：123456789',
       apiBaseUrl: 'API / 反代地址',
     },
+    feishu: {
+      description: '飞书机器人 Webhook，支持富文本卡片消息。',
+      configuredHint: '已保存飞书 Webhook 地址。',
+    },
     webhook: {
       title: '通用 Webhook',
       description: '支持 JSON 模板变量；URL 和 Headers 作为敏感字段不回显。',
