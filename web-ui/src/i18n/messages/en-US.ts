@@ -22,6 +22,9 @@ const enUS = {
   common: {
     cancel: 'Cancel',
     close: 'Close',
+    delete: 'Delete',
+    edit: 'Edit',
+    skipToContent: 'Skip to main content',
     save: 'Save',
     saving: 'Saving...',
     refresh: 'Refresh',
@@ -56,6 +59,11 @@ const enUS = {
     countdownSeconds: '{seconds}s',
   },
   header: {
+    goHome: 'Go to dashboard',
+    openAccounts: 'Open account management',
+    openNavigation: 'Open navigation menu',
+    openNotifications: 'Open notification settings',
+    openPrompts: 'Open prompt manager',
     searchUnavailable: 'Task search is only available on the dashboard...',
     accountManagement: 'Account Management',
   },
