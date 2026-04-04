@@ -42,18 +42,12 @@ const crawlTime = props.item.爬取时间
 const matchScore = ai?.value_score ?? 0
 const wantCount = info['想要人数']
 
-// 格式化想要数
+// 格式化想要数 - 保持完整精度，始终显示个位
 const formattedWantCount = computed(() => {
   if (!wantCount && wantCount !== 0) return null
   const num = typeof wantCount === 'string' ? parseInt(wantCount, 10) : wantCount
   if (isNaN(num)) return null
-  if (num >= 10000) {
-    return `${(num / 10000).toFixed(1)}万`
-  }
-  if (num >= 1000) {
-    return `${(num / 1000).toFixed(1)}k`
-  }
-  return String(num)
+  return num.toLocaleString('zh-CN')
 })
 
 const expanded = ref(false)
