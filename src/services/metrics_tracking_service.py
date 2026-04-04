@@ -451,6 +451,69 @@ class MetricsTrackingService:
                 return total_diff
             return None
 
+    def get_price_and_want_count_changes(self, item_id: str, want_count_threshold: int = 1) -> Optional[Dict]:
+        """
+        获取单个商品的价格和想要数变化信息（用于通知推送）
+        Args:
+            item_id: 商品 ID
+            want_count_threshold: 想要数变化显示阈值（默认>1 才显示）
+        Returns:
+            包含价格和想要数变化显示的字典，首次爬取或无变化时返回 None
+        """
+        with sqlite_connection() as conn:
+            # 获取最近两条记录
+            cursor = conn.execute(
+                """
+                SELECT price, price_display, want_count, snapshot_time
+                FROM item_metrics_history
+                WHERE item_id = ?
+                ORDER BY snapshot_time DESC
+                LIMIT 2
+                """,
+                (item_id,),
+            )
+            rows = cursor.fetchall()
+
+            if len(rows) < 2:
+                # 首次爬取，没有历史记录对比，返回 None
+                return None
+
+            current = rows[0]
+            previous = rows[1]
+
+            result = {}
+
+            # 价格变化（只要有变化就显示）
+            current_price = current["price"]
+            previous_price = previous["price"]
+            current_price_display = current["price_display"] or "N/A"
+
+            if current_price is not None and previous_price is not None:
+                price_diff = current_price - previous_price
+                if price_diff != 0:
+                    if price_diff > 0:
+                        result["price_change_display"] = f"↑ {price_diff:.2f} ({current_price_display})"
+                    else:
+                        result["price_change_display"] = f"↓ {abs(price_diff):.2f} ({current_price_display})"
+
+            # 想要数变化（只有变化量超过阈值才显示）
+            current_want = current["want_count"]
+            previous_want = previous["want_count"]
+
+            if current_want is not None and previous_want is not None:
+                want_diff = current_want - previous_want
+                if abs(want_diff) > want_count_threshold:
+                    if want_diff > 0:
+                        result["want_count_change_display"] = f"↑ {want_diff} ({current_want}想要)"
+                    else:
+                        result["want_count_change_display"] = f"↓ {abs(want_diff)} ({current_want}想要)"
+
+            # 如果没有任何变化，返回 None
+            if not result:
+                return None
+
+            return result
+
 
 # 全局服务实例
 _metrics_service: Optional[MetricsTrackingService] = None

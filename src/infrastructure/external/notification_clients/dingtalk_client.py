@@ -29,8 +29,7 @@ class DingtalkClient(NotificationClient):
         markdown_content = (
             f"## {message.notification_title}\n\n"
             f"- **商品标题**: {message.title}\n"
-            f"- **价格**: {message.price}\n"
-            f"- **推荐原因**: {message.reason}\n"
+            f"{message.content}\n"
         )
 
         if message.mobile_link:

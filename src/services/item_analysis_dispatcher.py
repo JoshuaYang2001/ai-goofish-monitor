@@ -78,6 +78,18 @@ class ItemAnalysisDispatcher:
         if await self._saver(record, job.keyword):
             self.completed_count += 1
 
+        # 在记录指标之前获取价格和想要数变化信息（用于通知）
+        item_id = str(item_data.get("商品 ID", ""))
+        if item_id:
+            metrics_service = get_metrics_service()
+            changes = metrics_service.get_price_and_want_count_changes(item_id)
+            if changes:
+                # 只有变化时才添加字段
+                if "price_change_display" in changes:
+                    item_data["price_change_display"] = changes["price_change_display"]
+                if "want_count_change_display" in changes:
+                    item_data["want_count_change_display"] = changes["want_count_change_display"]
+
         # 记录指标快照（价格、想要数）
         await self._record_metrics(item_data)
 
@@ -136,7 +148,7 @@ class ItemAnalysisDispatcher:
             try:
                 seller_info = await self._seller_loader(job.seller_id)
             except Exception as exc:
-                print(f"   [卖家] 采集卖家 {job.seller_id} 信息失败: {exc}")
+                print(f"   [卖家] 采集卖家 {job.seller_id} 信息失败：{exc}")
         merged = copy.deepcopy(seller_info or {})
         merged["卖家芝麻信用"] = job.zhima_credit_text
         merged["卖家注册时长"] = job.registration_duration_text
@@ -157,7 +169,7 @@ class ItemAnalysisDispatcher:
         return {
             "analysis_source": "ai",
             "is_recommended": True,
-            "reason": "商品已跳过AI分析，直接通知",
+            "reason": "商品已跳过 AI 分析，直接通知",
             "keyword_hit_count": 0,
         }
 
@@ -177,7 +189,7 @@ class ItemAnalysisDispatcher:
         try:
             image_paths = await self._download_images(job, record)
             if not job.prompt_text:
-                return self._build_ai_error_result("任务未配置AI prompt，跳过分析。")
+                return self._build_ai_error_result("任务未配置 AI prompt，跳过分析。")
             ai_result = await self._ai_analyzer(record, image_paths, job.prompt_text)
             if not ai_result:
                 return self._build_ai_error_result(
@@ -189,7 +201,7 @@ class ItemAnalysisDispatcher:
             return ai_result
         except Exception as exc:
             return self._build_ai_error_result(
-                f"AI分析异常: {exc}",
+                f"AI 分析异常：{exc}",
                 error=str(exc),
             )
         finally:
@@ -203,7 +215,7 @@ class ItemAnalysisDispatcher:
         if not image_urls:
             return []
         return await self._image_downloader(
-            item_data["商品ID"],
+            item_data["商品 ID"],
             image_urls,
             job.task_name,
         )
@@ -214,7 +226,7 @@ class ItemAnalysisDispatcher:
                 if os.path.exists(img_path):
                     os.remove(img_path)
             except Exception as exc:
-                print(f"   [图片] 删除图片文件时出错: {exc}")
+                print(f"   [图片] 删除图片文件时出错：{exc}")
 
     async def _notify_if_recommended(self, item_data: dict, analysis_result: dict) -> None:
         if not analysis_result.get("is_recommended"):
@@ -222,4 +234,4 @@ class ItemAnalysisDispatcher:
         try:
             await self._notifier(item_data, analysis_result.get("reason", "无"))
         except Exception as exc:
-            print(f"   [通知] 发送推荐通知失败: {exc}")
+            print(f"   [通知] 发送推荐通知失败：{exc}")
