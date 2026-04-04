@@ -2,7 +2,7 @@ import enUSExtra from '@/i18n/messages/en-US-extra'
 
 const enUS = {
   app: {
-    name: 'Goofish Monitor',
+    name: 'AI Xianyu Hunter PRO',
   },
   locale: {
     switchLabel: 'Switch language',

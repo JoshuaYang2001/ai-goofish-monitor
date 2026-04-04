@@ -44,6 +44,13 @@ const zhCNExtra = {
       maxPages: '最多 {count} 页',
     },
     form: {
+      taskType: '任务类型',
+      taskTypePlaceholder: '选择任务类型',
+      taskTypeKeyword: '关键词监控',
+      taskTypeItemId: '商品 ID 监控',
+      itemIdListLabel: '商品 ID 列表',
+      itemIdListPlaceholder: '请输入商品 ID，每行一个\n例如：\n1026885870648\n1234567890123',
+      itemIdListHint: '商品 ID 必须是纯数字，可以从闲鱼商品详情页 URL 中获取',
       taskName: '任务名称',
       taskNamePlaceholder: '例如：索尼 A7M4 相机',
       keyword: '搜索关键词',

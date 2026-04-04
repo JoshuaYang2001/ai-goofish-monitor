@@ -324,15 +324,15 @@ function handleSubmit() {
     <div class="grid gap-6 py-4">
       <!-- 任务类型选择 -->
       <div class="grid grid-cols-4 items-center gap-4">
-        <Label class="text-right">{{ t('tasks.form.taskType') || '任务类型' }}</Label>
+        <Label class="text-right">{{ t('tasks.form.taskType') }}</Label>
         <div class="col-span-3">
           <Select v-model="taskType">
             <SelectTrigger>
-              <SelectValue :placeholder="t('tasks.form.taskTypePlaceholder') || '选择任务类型'" />
+              <SelectValue :placeholder="t('tasks.form.taskTypePlaceholder')" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="keyword">关键词监控</SelectItem>
-              <SelectItem value="item_id">商品 ID 监控</SelectItem>
+              <SelectItem value="keyword">{{ t('tasks.form.taskTypeKeyword') }}</SelectItem>
+              <SelectItem value="item_id">{{ t('tasks.form.taskTypeItemId') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -351,15 +351,15 @@ function handleSubmit() {
 
       <!-- 商品 ID 监控模式：显示商品 ID 列表输入 -->
       <div v-if="taskType === 'item_id'" class="grid grid-cols-4 gap-4">
-        <Label class="text-right pt-2">商品 ID 列表</Label>
+        <Label class="text-right pt-2">{{ t('tasks.form.itemIdListLabel') }}</Label>
         <div class="col-span-3 space-y-2">
           <Textarea
             v-model="itemIdListInput"
             class="min-h-[120px]"
-            placeholder="请输入商品 ID，每行一个&#10;例如：&#10;1026885870648&#10;1234567890123"
+            :placeholder="t('tasks.form.itemIdListPlaceholder')"
           />
           <p class="text-xs text-gray-500">
-            商品 ID 必须是纯数字，可以从闲鱼商品详情页 URL 中获取
+            {{ t('tasks.form.itemIdListHint') }}
           </p>
         </div>
       </div>
