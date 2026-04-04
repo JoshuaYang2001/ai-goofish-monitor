@@ -78,69 +78,71 @@ class ItemAnalysisDispatcher:
         if await self._saver(record, job.keyword):
             self.completed_count += 1
 
-        # 在记录指标之前获取价格和想要数变化信息（用于通知）
+        # 解析当前价格和想要数（用于比较和记录）
         item_id = str(item_data.get("商品 ID", ""))
+        price_raw = item_data.get("当前售价")
+        want_count_raw = item_data.get("想要人数")
+        browse_count_raw = item_data.get("浏览量")
+
+        # 解析价格为数值
+        price_value = None
+        if price_raw:
+            try:
+                price_value = float(str(price_raw).replace("¥", "").strip())
+            except (ValueError, TypeError):
+                price_value = None
+
+        # 解析想要数为整数
+        want_count_value = None
+        browse_count_value = None
+        if want_count_raw:
+            try:
+                want_count_value = int(str(want_count_raw).replace("想要", "").strip())
+            except (ValueError, TypeError):
+                pass
+        if browse_count_raw:
+            try:
+                browse_count_value = int(str(browse_count_raw).replace("浏览", "").strip())
+            except (ValueError, TypeError):
+                pass
+
+        # 先比较当前值和数据库最新记录（写入之前）
         if item_id:
             metrics_service = get_metrics_service()
-            changes = metrics_service.get_price_and_want_count_changes(item_id)
-            if changes:
-                # 只有变化时才添加字段
-                if "price_change_display" in changes:
-                    item_data["price_change_display"] = changes["price_change_display"]
-                if "want_count_change_display" in changes:
-                    item_data["want_count_change_display"] = changes["want_count_change_display"]
+            changes = metrics_service.compare_with_latest(
+                item_id=item_id,
+                current_price=price_value,
+                current_price_display=str(price_raw) if price_raw else None,
+                current_want_count=want_count_value,
+            )
+            # 设置或清除变化字段
+            if changes and "price_change_display" in changes:
+                item_data["price_change_display"] = changes["price_change_display"]
+            else:
+                item_data.pop("price_change_display", None)
+            if changes and "want_count_change_display" in changes:
+                item_data["want_count_change_display"] = changes["want_count_change_display"]
+            else:
+                item_data.pop("want_count_change_display", None)
 
         # 记录指标快照（价格、想要数）
-        await self._record_metrics(item_data)
+        if item_id:
+            try:
+                metrics_service = get_metrics_service()
+                metrics_service.record_metrics(
+                    item_id=item_id,
+                    title=item_data.get("商品标题", "")[:200],
+                    price=price_value,
+                    price_display=str(price_raw) if price_raw else None,
+                    want_count=want_count_value,
+                    browse_count=browse_count_value,
+                    seller_id=item_data.get("卖家 ID"),
+                    link=item_data.get("商品链接"),
+                )
+            except Exception as e:
+                print(f"   [指标] 记录指标快照失败：{e}")
 
         await self._notify_if_recommended(item_data, record["ai_analysis"])
-
-    async def _record_metrics(self, item_data: dict) -> None:
-        """记录商品指标快照"""
-        try:
-            item_id = str(item_data.get("商品 ID", ""))
-            if not item_id:
-                return
-
-            price = item_data.get("当前售价")
-            want_count = item_data.get("想要人数")
-            browse_count = item_data.get("浏览量")
-
-            # 尝试解析价格为数字
-            price_value = None
-            if price:
-                try:
-                    price_value = float(str(price).replace("¥", "").strip())
-                except (ValueError, TypeError):
-                    price_value = None
-
-            # 尝试解析想要数和浏览量为整数
-            want_count_value = None
-            browse_count_value = None
-            if want_count:
-                try:
-                    want_count_value = int(str(want_count).replace("想要", "").strip())
-                except (ValueError, TypeError):
-                    pass
-            if browse_count:
-                try:
-                    browse_count_value = int(str(browse_count).replace("浏览", "").strip())
-                except (ValueError, TypeError):
-                    pass
-
-            metrics_service = get_metrics_service()
-            metrics_service.record_metrics(
-                item_id=item_id,
-                title=item_data.get("商品标题", "")[:200],
-                price=price_value,
-                price_display=str(price) if price else None,
-                want_count=want_count_value,
-                browse_count=browse_count_value,
-                seller_id=item_data.get("卖家 ID"),
-                link=item_data.get("商品链接"),
-            )
-        except Exception as e:
-            print(f"   [指标] 记录指标快照失败：{e}")
 
     async def _load_seller_info(self, job: ItemAnalysisJob) -> dict:
         seller_info = {}

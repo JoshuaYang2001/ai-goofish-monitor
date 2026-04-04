@@ -4,6 +4,7 @@
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict
 
 from src.utils import convert_goofish_link
@@ -75,7 +76,9 @@ class NotificationClient(ABC):
             content_lines.append(f"价格变化：{price_change}")
         if want_count_change:
             content_lines.append(f"想要数变化：{want_count_change}")
-        content_lines.append(f"原因：{reason}")
+        # 添加当前时间
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        content_lines.append(f"时间：{now}")
         if mobile_link:
             content_lines.append(f"手机端链接：{mobile_link}")
             content_lines.append(f"电脑端链接：{desktop_link}")

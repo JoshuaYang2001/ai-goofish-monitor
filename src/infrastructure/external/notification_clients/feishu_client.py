@@ -58,24 +58,15 @@ class FeishuClient(NotificationClient):
             ]
         }
 
-        # 如果有图片，添加到消息中
+        # 如果有图片，添加图片链接（飞书不支持直接显示外部图片）
         if message.image_url:
             content["elements"].insert(1, {
-                "tag": "img",
-                "img_key": "",
-                "alt": {
-                    "content": "商品图片",
-                    "tag": "plain_text"
-                }
-            })
-            # 飞书图片需要特殊处理，这里简化处理，直接显示文本链接
-            content["elements"][1] = {
                 "tag": "div",
                 "text": {
-                    "content": f"![商品图片]({message.image_url})",
+                    "content": f"**商品图片**: [点击查看图片]({message.image_url})",
                     "tag": "lark_md"
                 }
-            }
+            })
 
         if message.mobile_link:
             content["elements"].append({
