@@ -301,12 +301,12 @@ class TaskUpdate(BaseModel):
 
     @model_validator(mode="after")
     def validate_partial_keyword_payload(self):
+        # 只在明确设置了 keyword_rules 时才验证关键词规则
         if self.decision_mode == "keyword" and self.keyword_rules is not None:
             if not _has_keyword_rules(self.keyword_rules):
                 raise ValueError("关键词判断模式下，至少需要一个关键词。")
-        if self.decision_mode == "ai" and self.description is not None:
-            if not str(self.description).strip():
-                raise ValueError("AI 判断模式下，详细需求 (description) 不能为空。")
+        # 编辑模式下，允许 description 为空字符串（用户可能只是修改其他字段）
+        # 只有当 description 被明确设置为空且 decision_mode 为 ai 时，不抛出错误
         return self
 
 
