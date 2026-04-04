@@ -7,7 +7,7 @@ import { useSettings } from '@/composables/useSettings'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import Badge from '@/components/ui/badge/Badge.vue'
-import PriceTrendChart from '@/components/results/PriceTrendChart.vue'
+import DailyCurveChart from '@/components/results/DailyCurveChart.vue'
 import { formatNumber, formatRelativeTimeFromNow } from '@/i18n'
 import {
   Activity,
@@ -209,7 +209,7 @@ function openActivity(activity: { filename: string | null; type: string }) {
                 <p class="mt-2 text-xs text-[#7a6855]">{{ card.hint }}</p>
               </article>
             </div>
-            <PriceTrendChart :points="focusInsights?.daily_trend || []" />
+            <DailyCurveChart :points="focusInsights?.daily_trend || []" />
             <div class="grid gap-3 rounded-[28px] border border-[#d8c7b5] bg-white/80 p-5 shadow-[0_12px_30px_rgba(92,68,36,0.06)] md:grid-cols-3">
               <div class="rounded-2xl bg-[#f8f1e5] px-4 py-3 text-sm text-[#5e5043]">
                 {{ t('dashboard.focus.currentMedian') }}

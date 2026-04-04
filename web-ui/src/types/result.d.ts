@@ -84,11 +84,14 @@ export interface ResultInsights {
   };
   daily_trend: Array<{
     day: string;
+    run_id: string;
+    snapshot_time: string;
     sample_count: number;
     avg_price: number | null;
     median_price: number | null;
     min_price: number | null;
     max_price: number | null;
+    avg_want_count: number | null;
   }>;
   latest_snapshot_at?: string | null;
 }

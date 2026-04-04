@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ResultInsights } from '@/types/result.d.ts'
-import PriceTrendChart from './PriceTrendChart.vue'
+import DailyCurveChart from './DailyCurveChart.vue'
 import { formatDateTime } from '@/i18n'
 
 const props = defineProps<{
@@ -73,7 +73,7 @@ const latestSnapshotText = computed(() => {
           </article>
         </div>
 
-        <PriceTrendChart :points="insights?.daily_trend || []" />
+        <DailyCurveChart :points="insights?.daily_trend || []" />
       </div>
 
       <div class="space-y-4">

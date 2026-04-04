@@ -233,17 +233,101 @@ def _summarize_prices(records: Iterable[dict]) -> dict:
     }
 
 
-def _build_daily_trend(snapshots: list[dict]) -> list[dict]:
+def _fetch_want_counts_for_runs(run_times: list[tuple[str, str]]) -> dict[str, Optional[float]]:
+    """
+    从 item_metrics_history 表查询每次运行的平均想要数
+
+    Args:
+        run_times: [(run_id, snapshot_time), ...] 列表
+
+    Returns:
+        字典：run_id -> 平均想要数
+    """
+    if not run_times:
+        return {}
+
+    # 按小时时间窗口查询（精确到小时）
+    # 例如：2026-04-06T10:00:00 -> 2026-04-06T10
+    hours = list(set(t[:13] for _, t in run_times if t))
+    if not hours:
+        return {rid: None for rid, _ in run_times}
+
+    bootstrap_sqlite_storage()
+    with sqlite_connection() as conn:
+        placeholders = ",".join("?" * len(hours))
+        cursor = conn.execute(
+            f"""
+            SELECT
+                SUBSTR(snapshot_time, 1, 13) as hour,
+                AVG(want_count) as avg_want_count
+            FROM item_metrics_history
+            WHERE SUBSTR(snapshot_time, 1, 13) IN ({placeholders})
+              AND want_count IS NOT NULL
+            GROUP BY hour
+            """,
+            tuple(hours),
+        )
+        rows = cursor.fetchall()
+
+    # hour -> avg_want_count
+    hour_to_want: dict[str, Optional[float]] = {}
+    for row in rows:
+        avg = row["avg_want_count"]
+        hour_to_want[row["hour"]] = round(float(avg), 1) if avg is not None else None
+
+    # run_id -> avg_want_count（通过小时关联）
+    result: dict[str, Optional[float]] = {}
+    for run_id, snapshot_time in run_times:
+        hour = snapshot_time[:13] if snapshot_time else ""
+        result[run_id] = hour_to_want.get(hour)
+
+    return result
+
+
+def _build_trend_by_run(snapshots: list[dict]) -> list[dict]:
+    """按每次爬虫执行（run_id）构建趋势数据"""
+    # 按 run_id 分组
     grouped: dict[str, list[dict]] = defaultdict(list)
     for snapshot in snapshots:
-        grouped[str(snapshot.get("snapshot_day") or "")].append(snapshot)
+        run_id = str(snapshot.get("run_id") or "")
+        if run_id:
+            grouped[run_id].append(snapshot)
 
+    if not grouped:
+        return []
+
+    # 获取每次运行的时间和商品数据
+    run_times: list[tuple[str, str]] = []
+    run_data: dict[str, dict] = {}
+
+    for run_id, run_snapshots in grouped.items():
+        # 取该次运行的时间（第一条记录的时间）
+        snapshot_time = run_snapshots[0].get("snapshot_time", "")
+        run_times.append((run_id, snapshot_time))
+
+        # 去重：每个商品只保留最新一条
+        unique_items = _dedupe_latest(run_snapshots, "item_id")
+        run_data[run_id] = {
+            "snapshot_time": snapshot_time,
+            "items": unique_items,
+        }
+
+    # 批量获取想要数
+    want_counts_by_run = _fetch_want_counts_for_runs(run_times)
+
+    # 构建趋势点
     points: list[dict] = []
-    for day in sorted(grouped.keys()):
-        day_records = _dedupe_latest(grouped[day], "item_id")
-        summary = _summarize_prices(day_records)
-        summary["day"] = day
+    for run_id, data in run_data.items():
+        items = data["items"]
+        summary = _summarize_prices(items)
+        summary["run_id"] = run_id
+        summary["snapshot_time"] = data["snapshot_time"]
+        summary["day"] = data["snapshot_time"][:10] if data["snapshot_time"] else ""
+        summary["avg_want_count"] = want_counts_by_run.get(run_id)
         points.append(summary)
+
+    # 按时间排序
+    points.sort(key=lambda x: x.get("snapshot_time") or "")
     return points
 
 
@@ -390,6 +474,6 @@ def build_price_history_insights(
             "unique_items": len(latest_records_by_item),
             **_summarize_prices(latest_records_by_item),
         },
-        "daily_trend": _build_daily_trend(recent_snapshots),
+        "daily_trend": _build_trend_by_run(recent_snapshots),
         "latest_snapshot_at": snapshots[-1].get("snapshot_time"),
     }

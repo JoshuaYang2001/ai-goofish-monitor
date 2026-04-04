@@ -187,6 +187,7 @@ const enUS = {
     chart: {
       avgPrice: 'Average',
       medianPrice: 'Median',
+      wantCount: 'Want Count',
       noTrend: 'No trend data to render yet',
     },
     card: {

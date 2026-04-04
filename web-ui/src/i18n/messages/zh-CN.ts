@@ -187,6 +187,7 @@ const zhCN = {
     chart: {
       avgPrice: '均价',
       medianPrice: '中位数',
+      wantCount: '想要数',
       noTrend: '暂无可绘制的趋势数据',
     },
     card: {
