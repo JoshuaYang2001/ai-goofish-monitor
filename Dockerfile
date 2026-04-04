@@ -33,7 +33,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 
-RUN apt-get update \
+# 使用阿里云镜像源加速 apt 更新
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list \
+    && sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         tzdata \
         tini \
