@@ -41,7 +41,7 @@ class FeishuClient(NotificationClient):
                 {
                     "tag": "div",
                     "text": {
-                        "content": message.content,
+                        "content": f"**商品标题**: {message.title}\n{message.content}",
                         "tag": "lark_md"
                     }
                 }
