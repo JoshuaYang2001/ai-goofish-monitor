@@ -79,11 +79,6 @@ class NotificationClient(ABC):
         # 添加当前时间
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         content_lines.append(f"时间：{now}")
-        if mobile_link:
-            content_lines.append(f"手机端链接：{mobile_link}")
-            content_lines.append(f"电脑端链接：{desktop_link}")
-        else:
-            content_lines.append(f"链接：{desktop_link}")
 
         short_title = title[:30]
         suffix = "..." if len(title) > 30 else ""

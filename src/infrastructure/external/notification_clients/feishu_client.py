@@ -41,41 +41,12 @@ class FeishuClient(NotificationClient):
                 {
                     "tag": "div",
                     "text": {
-                        "content": f"**商品标题**: {message.title}\n{message.content}",
-                        "tag": "lark_md"
-                    }
-                },
-                {
-                    "tag": "hr"
-                },
-                {
-                    "tag": "div",
-                    "text": {
-                        "content": f"[点击查看商品详情]({message.desktop_link})",
+                        "content": message.content,
                         "tag": "lark_md"
                     }
                 }
             ]
         }
-
-        # 如果有图片，添加图片链接（飞书不支持直接显示外部图片）
-        if message.image_url:
-            content["elements"].insert(1, {
-                "tag": "div",
-                "text": {
-                    "content": f"**商品图片**: [点击查看图片]({message.image_url})",
-                    "tag": "lark_md"
-                }
-            })
-
-        if message.mobile_link:
-            content["elements"].append({
-                "tag": "div",
-                "text": {
-                    "content": f"**手机端链接**: [{message.mobile_link}]({message.mobile_link})",
-                    "tag": "lark_md"
-                }
-            })
 
         payload = {
             "msg_type": "interactive",
