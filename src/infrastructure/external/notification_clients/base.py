@@ -70,6 +70,10 @@ class NotificationClient(ABC):
         content_lines = [
             f"价格：{price}",
         ]
+        # 卖家昵称
+        seller_nickname = product_data.get('卖家昵称')
+        if seller_nickname:
+            content_lines.insert(0, f"卖家：{seller_nickname}")
         if want_count:
             content_lines.append(f"想要数：{want_count}")
         if price_change:
