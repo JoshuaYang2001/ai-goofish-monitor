@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_connection import sqlite_connection
@@ -123,8 +124,17 @@ def load_processed_link_keys(keyword: str) -> set[str]:
     return {str(row["link_unique_key"]) for row in rows if row["link_unique_key"]}
 
 
+async def list_result_file_entries() -> list[dict[str, str]]:
+    """列出仍有对应任务的结果，并返回可靠的当前任务名。"""
+    return await asyncio.to_thread(_list_result_file_entries_sync)
+
+
 async def list_result_filenames() -> list[str]:
     return await asyncio.to_thread(_list_result_filenames_sync)
+
+
+def _normalize_result_key(value: str | None) -> str:
+    return re.sub(r"\s+", "_", str(value or "").strip().lower())
 
 
 def _list_result_filenames_sync() -> list[str]:
@@ -139,6 +149,69 @@ def _list_result_filenames_sync() -> list[str]:
             """
         ).fetchall()
     return [str(row["result_filename"]) for row in rows]
+
+
+def _list_result_file_entries_sync() -> list[dict[str, str]]:
+    bootstrap_sqlite_storage()
+    with sqlite_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT result_filename, MAX(crawl_time) AS latest_crawl_time
+            FROM result_items
+            GROUP BY result_filename
+            ORDER BY latest_crawl_time DESC, result_filename DESC
+            """
+        ).fetchall()
+        tasks = [dict(row) for row in conn.execute(
+            "SELECT id, task_name, task_type, keyword FROM tasks ORDER BY id ASC"
+        ).fetchall()]
+
+        entries: list[dict[str, str]] = []
+        for row in rows:
+            filename = str(row["result_filename"])
+            latest = conn.execute(
+                """
+                SELECT task_name, keyword
+                FROM result_items
+                WHERE result_filename = ?
+                ORDER BY crawl_time DESC, id DESC
+                LIMIT 1
+                """,
+                (filename,),
+            ).fetchone()
+            if latest is None:
+                continue
+
+            stored_task_name = str(latest["task_name"] or "")
+            result_key = _normalize_result_key(latest["keyword"])
+            filename_key = _normalize_result_key(
+                filename.removesuffix("_full_data.jsonl")
+            )
+            task = next(
+                (
+                    candidate
+                    for candidate in tasks
+                    if candidate["task_name"] == stored_task_name
+                ),
+                None,
+            )
+            if task is None:
+                task = next(
+                    (
+                        candidate
+                        for candidate in tasks
+                        if _normalize_result_key(
+                            candidate.get("keyword") or candidate["task_name"]
+                        ) in {result_key, filename_key}
+                    ),
+                    None,
+                )
+            if task is None:
+                continue
+            entries.append(
+                {"filename": filename, "task_name": str(task["task_name"])}
+            )
+    return entries
 
 
 async def result_file_exists(filename: str) -> bool:

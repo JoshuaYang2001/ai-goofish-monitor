@@ -34,7 +34,9 @@ def _build_summary_metrics(tasks: list[Task], summary_list: list[dict[str, Any]]
 
 
 async def build_dashboard_snapshot(tasks: list[Task]) -> dict[str, Any]:
-    task_lookup = {normalize_text(task.keyword): task for task in tasks}
+    task_lookup = {
+        normalize_text(task.keyword or task.task_name): task for task in tasks
+    }
     task_summaries: dict[str, dict[str, Any]] = {
         task.task_name: build_empty_summary(task) for task in tasks
     }
@@ -43,8 +45,9 @@ async def build_dashboard_snapshot(tasks: list[Task]) -> dict[str, Any]:
 
     for filename in await list_result_filenames():
         summary, activities, file_latest_time = await summarize_result_file(filename, task_lookup)
-        if summary:
-            task_summaries[summary["task_name"]] = summary
+        if not summary or summary["task_id"] is None:
+            continue
+        task_summaries[summary["task_name"]] = summary
         recent_activities.extend(activities)
         if file_latest_time and (latest_updated_at is None or file_latest_time > latest_updated_at):
             latest_updated_at = file_latest_time

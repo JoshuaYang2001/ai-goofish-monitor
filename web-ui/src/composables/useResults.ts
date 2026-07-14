@@ -20,6 +20,7 @@ export function useResults() {
   const page = ref(1)
   const limit = ref(100)
   const taskNameByKeyword = ref<Record<string, string>>({})
+  const taskNameByFile = ref<Record<string, string>>({})
   const isFileOptionsReady = ref(false)
   const hasFetchedFiles = ref(false)
   const hasFetchedTasks = ref(false)
@@ -47,8 +48,10 @@ export function useResults() {
   // Methods
   async function fetchFiles() {
     try {
-      const fileList = await resultsApi.getResultFiles()
+      const fileResponse = await resultsApi.getResultFiles()
+      const fileList = fileResponse.files
       files.value = fileList
+      taskNameByFile.value = fileResponse.taskNames
       // If a file is selected that no longer exists, reset it.
       // Otherwise, if nothing is selected, select the first file by default.
       if (selectedFile.value && fileList.includes(selectedFile.value)) {
@@ -115,9 +118,8 @@ export function useResults() {
       const tasks = await tasksApi.getAllTasks()
       const mapping: Record<string, string> = {}
       tasks.forEach((task) => {
-        if (task.keyword) {
-          mapping[normalizeKeyword(task.keyword)] = task.task_name
-        }
+        const resultKey = task.keyword || task.task_name
+        mapping[normalizeKeyword(resultKey)] = task.task_name
       })
       taskNameByKeyword.value = mapping
     } catch (e) {
@@ -149,8 +151,8 @@ export function useResults() {
     }
   })
 
-  on('tasks_updated', () => {
-    fetchTaskNameMap()
+  on('tasks_updated', async () => {
+    await Promise.all([fetchTaskNameMap(), fetchFiles()])
   })
 
   // 任务完成后自动刷新
@@ -247,8 +249,8 @@ export function useResults() {
 
   const fileOptions = computed(() =>
     files.value.map((file) => {
-      const keyword = getKeywordFromFilename(file)
-      const taskName = taskNameByKeyword.value[keyword]
+      const keyword = normalizeKeyword(getKeywordFromFilename(file))
+      const taskName = taskNameByFile.value[file] || taskNameByKeyword.value[keyword]
       return {
         value: file,
         taskName: taskName || t('common.unnamed'),

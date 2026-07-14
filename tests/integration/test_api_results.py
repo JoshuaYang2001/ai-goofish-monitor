@@ -1,10 +1,15 @@
+import asyncio
 import json
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.api.routes import results
+from src.domain.models.task import TaskCreate
+from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.services.price_history_service import record_market_snapshots
+from src.services.result_storage_service import save_result_record
+from src.services.task_service import TaskService
 
 
 def _write_jsonl(path, records):
@@ -230,3 +235,49 @@ def test_results_export_csv_supports_unicode_filename(tmp_path, monkeypatch):
     disposition = export_resp.headers["content-disposition"]
     assert 'filename="export.csv"' in disposition
     assert "filename*=UTF-8''%E6%BC%94%E7%A4%BA_full_data.csv" in disposition
+
+
+def test_result_files_use_current_task_name_and_hide_deleted_tasks(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    task_service = TaskService(SqliteTaskRepository(legacy_config_file=None))
+    task = asyncio.run(
+        task_service.create_task(
+            TaskCreate(
+                task_name="指定商品监控",
+                task_type="item_id",
+                item_id_list=["1001"],
+            )
+        )
+    )
+    record = {
+        "爬取时间": "2026-07-15T10:00:00",
+        "搜索关键字": "指定商品监控",
+        "任务名称": "指定商品监控",
+        "商品信息": {
+            "商品 ID": "1001",
+            "商品标题": "测试商品",
+            "商品链接": "https://www.goofish.com/item?id=1001",
+            "当前售价": "¥100",
+        },
+        "match_result": {
+            "analysis_source": "direct",
+            "is_recommended": True,
+            "keyword_hit_count": 1,
+        },
+    }
+    asyncio.run(save_result_record(record, "指定商品监控"))
+
+    app = FastAPI()
+    app.include_router(results.router)
+    with TestClient(app) as client:
+        response = client.get("/api/results/files")
+        assert response.status_code == 200
+        assert response.json() == {
+            "files": ["指定商品监控_full_data.jsonl"],
+            "task_names": {"指定商品监控_full_data.jsonl": "指定商品监控"},
+        }
+
+        assert asyncio.run(task_service.delete_task(task.id)) is True
+        response = client.get("/api/results/files")
+        assert response.status_code == 200
+        assert response.json() == {"files": [], "task_names": {}}

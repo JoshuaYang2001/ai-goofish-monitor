@@ -14,10 +14,10 @@ async def get_metric_changes(
         default=[1, 3, 6, 12, 24, 48, 72],
         description="统计时间窗口（小时），可重复传入",
     ),
-    task_name: Optional[str] = Query(default=None, description="按监控任务筛选"),
+    task_name: str = Query(min_length=1, description="要查看的监控任务名称"),
     search: Optional[str] = Query(default=None, max_length=100, description="按商品标题或 ID 搜索"),
 ):
-    """获取当前租户各商品在指定时间窗口内的价格和想要数变化。"""
+    """获取当前租户指定任务在各时间窗口内的价格和想要数变化。"""
     try:
         return get_metrics_service().get_change_overview(
             interval,

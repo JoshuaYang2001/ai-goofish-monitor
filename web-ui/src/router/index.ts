@@ -12,6 +12,12 @@ const routes = [
     meta: { titleKey: 'routes.login' },
   },
   {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/RegisterView.vue'),
+    meta: { titleKey: 'routes.register' },
+  },
+  {
     path: '/',
     component: MainLayout,
     redirect: '/dashboard',

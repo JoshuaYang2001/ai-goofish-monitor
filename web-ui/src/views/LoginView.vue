@@ -74,9 +74,12 @@ async function handleLogin() {
             {{ error }}
           </div>
         </CardContent>
-        <CardFooter>
+        <CardFooter class="flex-col gap-2">
           <Button class="w-full" type="submit" :disabled="isLoading">
             {{ isLoading ? t('login.submitting') : t('login.submit') }}
+          </Button>
+          <Button variant="link" as-child>
+            <RouterLink :to="{ name: 'Register' }">{{ t('login.registerAccount') }}</RouterLink>
           </Button>
         </CardFooter>
       </form>

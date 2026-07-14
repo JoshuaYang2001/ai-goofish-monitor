@@ -161,6 +161,85 @@ def create_tenant_with_owner(
     return Identity(**dict(row))
 
 
+def register_tenant_member(
+    admin_username: str,
+    admin_password: str,
+    username: str,
+    password: str,
+) -> Identity:
+    """使用平台管理员或租户所有者凭证注册同租户普通成员。"""
+    normalized_username = username.strip()
+    if len(normalized_username) < 3 or len(normalized_username) > 80:
+        raise ValueError("用户名长度必须在 3 到 80 个字符之间")
+    if len(password) < 8:
+        raise ValueError("密码至少需要 8 个字符")
+
+    admin_identity = authenticate(admin_username, admin_password)
+    if admin_identity is None:
+        raise PermissionError("管理员账号、密码不正确或无注册权限")
+
+    now = int(time.time())
+    with control_connection() as conn:
+        admin_row = conn.execute(
+            """
+            SELECT is_superadmin
+            FROM users
+            WHERE id = ? AND status = 'active'
+            """,
+            (admin_identity.user_id,),
+        ).fetchone()
+        is_authorized_admin = bool(
+            admin_row
+            and (
+                bool(admin_row["is_superadmin"])
+                or admin_identity.role == "owner"
+            )
+        )
+        if not is_authorized_admin:
+            raise PermissionError("管理员账号、密码不正确或无注册权限")
+
+        existing_user = conn.execute(
+            "SELECT id FROM users WHERE username = ?",
+            (normalized_username,),
+        ).fetchone()
+        if existing_user:
+            raise ValueError("用户名已存在")
+
+        try:
+            cursor = conn.execute(
+                """
+                INSERT INTO users (
+                    username, password_hash, is_superadmin, status, created_at
+                ) VALUES (?, ?, 0, 'active', ?)
+                """,
+                (normalized_username, hash_password(password), now),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("用户名已存在") from exc
+        user_id = int(cursor.lastrowid)
+        conn.execute(
+            """
+            INSERT INTO tenant_memberships (tenant_id, user_id, role)
+            VALUES (?, ?, 'member')
+            """,
+            (admin_identity.tenant_id, user_id),
+        )
+        row = conn.execute(
+            """
+            SELECT u.id AS user_id, u.username, t.id AS tenant_id,
+                   t.name AS tenant_name, tm.role
+            FROM users u
+            JOIN tenant_memberships tm ON tm.user_id = u.id
+            JOIN tenants t ON t.id = tm.tenant_id
+            WHERE u.id = ? AND t.id = ?
+            """,
+            (user_id, admin_identity.tenant_id),
+        ).fetchone()
+        conn.commit()
+
+    return Identity(**dict(row))
+
+
 def authenticate(username: str, password: str, tenant_id: str | None = None) -> Identity | None:
     params: list[object] = [username.strip()]
     tenant_filter = ""

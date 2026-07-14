@@ -2,7 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { ArrowDownRight, ArrowUpRight, Clock3, RefreshCw, Search, TrendingUp } from 'lucide-vue-next'
 import { getMetricChanges } from '@/api/metrics'
+import { getAllTasks } from '@/api/tasks'
 import type { MetricChangeItem, MetricChangesResponse } from '@/types/metrics.d.ts'
+import type { Task } from '@/types/task.d.ts'
+import { useWebSocket } from '@/composables/useWebSocket'
 import { useToast } from '@/components/ui/toast/use-toast'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,16 +15,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const DEFAULT_INTERVALS = [1, 3, 6, 12, 24, 48, 72]
-const ALL_TASKS = '__all__'
 const { toast } = useToast()
+const { on } = useWebSocket()
 
 const intervals = ref([...DEFAULT_INTERVALS])
 const selectedInterval = ref(24)
 const customInterval = ref<number>()
-const selectedTask = ref(ALL_TASKS)
+const tasks = ref<Task[]>([])
+const selectedTaskId = ref('')
 const searchText = ref('')
 const data = ref<MetricChangesResponse | null>(null)
 const isLoading = ref(false)
+
+const selectedTask = computed(() =>
+  tasks.value.find((task) => String(task.id) === selectedTaskId.value) ?? null
+)
 
 const selectedSummary = computed(() => data.value?.summaries[String(selectedInterval.value)] ?? null)
 const sortedItems = computed(() => {
@@ -59,16 +67,42 @@ function currentChange(item: MetricChangeItem) {
 }
 
 async function loadChanges() {
+  if (!selectedTask.value) {
+    data.value = null
+    return
+  }
   isLoading.value = true
   try {
     data.value = await getMetricChanges(
       intervals.value,
-      selectedTask.value === ALL_TASKS ? undefined : selectedTask.value,
+      selectedTask.value.task_name,
       searchText.value.trim() || undefined,
     )
   } catch (error: unknown) {
     toast({
       title: '加载变化数据失败',
+      description: error instanceof Error ? error.message : '请稍后重试',
+      variant: 'destructive',
+    })
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function loadTasksAndChanges() {
+  isLoading.value = true
+  try {
+    const loadedTasks = await getAllTasks()
+    tasks.value = loadedTasks
+    if (!loadedTasks.some((task) => String(task.id) === selectedTaskId.value)) {
+      selectedTaskId.value = loadedTasks[0]?.id === undefined
+        ? ''
+        : String(loadedTasks[0].id)
+    }
+    await loadChanges()
+  } catch (error: unknown) {
+    toast({
+      title: '加载监控任务失败',
       description: error instanceof Error ? error.message : '请稍后重试',
       variant: 'destructive',
     })
@@ -95,7 +129,8 @@ async function addCustomInterval() {
   await loadChanges()
 }
 
-onMounted(loadChanges)
+on('tasks_updated', loadTasksAndChanges)
+onMounted(loadTasksAndChanges)
 </script>
 
 <template>
@@ -109,7 +144,7 @@ onMounted(loadChanges)
         <h1 class="text-2xl font-bold text-slate-900">价格与想要数变化</h1>
         <p class="mt-1 text-sm text-slate-500">按时间窗口对比当前快照与历史基线，数据仅来自当前租户。</p>
       </div>
-      <Button variant="outline" :disabled="isLoading" @click="loadChanges">
+      <Button variant="outline" :disabled="isLoading" @click="loadTasksAndChanges">
         <RefreshCw class="mr-2 h-4 w-4" :class="isLoading ? 'animate-spin' : ''" />
         刷新数据
       </Button>
@@ -132,12 +167,11 @@ onMounted(loadChanges)
         </div>
         <div class="space-y-2">
           <Label>监控任务</Label>
-          <Select v-model="selectedTask" @update:model-value="loadChanges">
-            <SelectTrigger><SelectValue placeholder="全部任务" /></SelectTrigger>
+          <Select v-model="selectedTaskId" @update:model-value="loadChanges">
+            <SelectTrigger><SelectValue placeholder="请选择任务" /></SelectTrigger>
             <SelectContent>
-              <SelectItem :value="ALL_TASKS">全部任务</SelectItem>
-              <SelectItem v-for="taskName in data?.task_names ?? []" :key="taskName" :value="taskName">
-                {{ taskName }}
+              <SelectItem v-for="task in tasks" :key="task.id" :value="String(task.id)">
+                {{ task.task_name }}
               </SelectItem>
             </SelectContent>
           </Select>

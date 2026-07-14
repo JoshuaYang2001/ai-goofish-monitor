@@ -21,6 +21,7 @@ class MetricsTrackingService:
         browse_count: Optional[int],
         seller_id: Optional[str],
         link: Optional[str],
+        task_name: str = "",
     ) -> bool:
         """
         记录商品指标快照（仅在价格或想要数变化时记录）
@@ -33,10 +34,10 @@ class MetricsTrackingService:
             cursor = conn.execute(
                 """
                 SELECT price, want_count FROM item_metrics_history
-                WHERE item_id = ?
+                WHERE item_id = ? AND task_name = ?
                 ORDER BY snapshot_time DESC LIMIT 1
                 """,
-                (item_id,),
+                (item_id, task_name),
             )
             last_record = cursor.fetchone()
             if last_record:
@@ -51,11 +52,12 @@ class MetricsTrackingService:
                 conn.execute(
                     """
                     INSERT INTO item_metrics_history (
-                        item_id, title, snapshot_time, price, price_display,
+                        task_name, item_id, title, snapshot_time, price, price_display,
                         want_count, browse_count, seller_id, link
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        task_name,
                         item_id,
                         title[:200],  # 限制标题长度
                         snapshot_time,
@@ -262,28 +264,38 @@ class MetricsTrackingService:
         with sqlite_connection() as conn:
             metric_rows = conn.execute(
                 """
-                SELECT item_id, title, snapshot_time, price, price_display,
+                SELECT task_name, item_id, title, snapshot_time, price, price_display,
                        want_count, browse_count, seller_id, link
                 FROM item_metrics_history
-                ORDER BY item_id ASC, snapshot_time ASC
+                ORDER BY task_name ASC, item_id ASC, snapshot_time ASC
                 """
             ).fetchall()
 
             task_rows = conn.execute(
                 """
-                SELECT item_id, task_name
+                SELECT DISTINCT item_id, task_name
                 FROM price_snapshots
-                WHERE id IN (
-                    SELECT MAX(id) FROM price_snapshots GROUP BY item_id
-                )
+                WHERE TRIM(task_name) <> ''
                 """
             ).fetchall()
 
-        task_by_item = {str(row["item_id"]): str(row["task_name"] or "") for row in task_rows}
-        histories: Dict[str, List[Dict[str, Any]]] = {}
+        tasks_by_item: Dict[str, set[str]] = {}
+        for row in task_rows:
+            tasks_by_item.setdefault(str(row["item_id"]), set()).add(
+                str(row["task_name"])
+            )
+
+        histories: Dict[tuple[str, str], List[Dict[str, Any]]] = {}
         for row in metric_rows:
             item_id = str(row["item_id"])
-            histories.setdefault(item_id, []).append(dict(row))
+            stored_task_name = str(row["task_name"] or "")
+            candidate_tasks = [stored_task_name] if stored_task_name else sorted(
+                tasks_by_item.get(item_id, {""})
+            )
+            for candidate_task in candidate_tasks:
+                if task_name and candidate_task != task_name:
+                    continue
+                histories.setdefault((candidate_task, item_id), []).append(dict(row))
 
         summaries: Dict[str, Dict[str, Any]] = {
             str(hours): {
@@ -297,11 +309,8 @@ class MetricsTrackingService:
         }
         items: List[Dict[str, Any]] = []
 
-        for item_id, history in histories.items():
+        for (item_task_name, item_id), history in histories.items():
             latest = history[-1]
-            item_task_name = task_by_item.get(item_id, "")
-            if task_name and item_task_name != task_name:
-                continue
             if normalized_search and normalized_search not in " ".join(
                 [item_id, str(latest.get("title") or ""), item_task_name]
             ).lower():

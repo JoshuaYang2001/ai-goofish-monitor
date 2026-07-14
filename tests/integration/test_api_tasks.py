@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sqlite3
 
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
@@ -144,6 +145,86 @@ def test_delete_task_stops_runtime_and_reindexes_process_state(
     process_service = api_context["process_service"]
     assert process_service.stopped == [0]
     assert process_service.reindexed == []
+
+
+def test_delete_task_cascades_only_its_results_and_history(
+    api_client,
+    api_context,
+    sample_task_payload,
+):
+    second_payload = dict(sample_task_payload)
+    second_payload["task_name"] = "另一个 Sony 任务"
+
+    assert api_client.post("/api/tasks/", json=sample_task_payload).status_code == 200
+    assert api_client.post("/api/tasks/", json=second_payload).status_code == 200
+
+    with sqlite3.connect(api_context["db_path"]) as connection:
+        for index, task_name in enumerate(("Sony A7M4", "另一个 Sony 任务"), start=1):
+            record = {
+                "搜索关键字": "sony a7m4",
+                "任务名称": task_name,
+                "爬取时间": f"2026-07-15T10:0{index}:00",
+                "商品信息": {"商品ID": str(index), "商品标题": task_name},
+            }
+            connection.execute(
+                """
+                INSERT INTO result_items (
+                    result_filename, keyword, task_name, crawl_time,
+                    link_unique_key, is_recommended, keyword_hit_count, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "sony_a7m4_full_data.jsonl",
+                    "sony a7m4",
+                    task_name,
+                    record["爬取时间"],
+                    f"item:{index}",
+                    0,
+                    0,
+                    json.dumps(record, ensure_ascii=False),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO price_snapshots (
+                    keyword_slug, keyword, task_name, snapshot_time, snapshot_day,
+                    run_id, item_id, price, tags_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "sony_a7m4",
+                    "sony a7m4",
+                    task_name,
+                    record["爬取时间"],
+                    "2026-07-15",
+                    f"run-{index}",
+                    str(index),
+                    1000 + index,
+                    "[]",
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO item_metrics_history (
+                    task_name, item_id, title, snapshot_time, price, want_count
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (task_name, str(index), task_name, record["爬取时间"], 1000 + index, index),
+            )
+        connection.commit()
+
+    response = api_client.delete("/api/tasks/0")
+
+    assert response.status_code == 200
+    with sqlite3.connect(api_context["db_path"]) as connection:
+        for table_name in ("result_items", "price_snapshots", "item_metrics_history"):
+            task_names = {
+                row[0]
+                for row in connection.execute(
+                    f"SELECT DISTINCT task_name FROM {table_name}"
+                ).fetchall()
+            }
+            assert task_names == {"另一个 Sony 任务"}
 
 
 def test_task_schema_migration_preserves_monitoring_fields(tmp_path):

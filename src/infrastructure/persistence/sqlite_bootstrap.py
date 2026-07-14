@@ -49,9 +49,11 @@ def bootstrap_sqlite_storage(
         with sqlite_connection(db_path) as conn:
             init_schema(conn)
             _migrate_tasks_schema(conn)
+            _migrate_metrics_schema(conn)
             _import_tasks_if_needed(conn, legacy_config_file)
             _import_results_if_needed(conn, legacy_result_dir)
             _import_price_snapshots_if_needed(conn, legacy_price_history_dir)
+            _backfill_metric_task_names(conn)
             _purge_retired_analysis_data(conn)
 
 
@@ -147,6 +149,48 @@ def _migrate_tasks_schema(conn) -> None:
     )
     conn.execute("DROP TABLE tasks_before_rule_migration")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_name ON tasks(task_name)")
+    conn.commit()
+
+
+def _migrate_metrics_schema(conn) -> None:
+    """为指标历史补充任务归属，旧库可原地升级。"""
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(item_metrics_history)")
+    }
+    if "task_name" not in columns:
+        conn.execute(
+            "ALTER TABLE item_metrics_history "
+            "ADD COLUMN task_name TEXT NOT NULL DEFAULT ''"
+        )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_metrics_task_item_time
+        ON item_metrics_history(task_name, item_id, snapshot_time DESC)
+        """
+    )
+    conn.commit()
+
+
+def _backfill_metric_task_names(conn) -> None:
+    """尽可能用已有价格快照补齐旧指标记录的任务名称。"""
+    conn.execute(
+        """
+        UPDATE item_metrics_history
+        SET task_name = COALESCE(
+            (
+                SELECT snapshots.task_name
+                FROM price_snapshots AS snapshots
+                WHERE snapshots.item_id = item_metrics_history.item_id
+                  AND TRIM(snapshots.task_name) <> ''
+                ORDER BY snapshots.snapshot_time DESC, snapshots.id DESC
+                LIMIT 1
+            ),
+            ''
+        )
+        WHERE TRIM(task_name) = ''
+        """
+    )
     conn.commit()
 
 

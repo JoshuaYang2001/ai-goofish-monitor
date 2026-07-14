@@ -115,6 +115,7 @@ class ItemAnalysisDispatcher:
             try:
                 metrics_service = get_metrics_service()
                 metrics_service.record_metrics(
+                    task_name=job.task_name,
                     item_id=item_id,
                     title=item_data.get("商品标题", "")[:200],
                     price=price_value,

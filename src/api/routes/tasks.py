@@ -16,9 +16,6 @@ from src.services.task_payloads import serialize_task, serialize_tasks
 from src.domain.models.task import TaskCreate, TaskUpdate
 from src.utils import resolve_task_log_path
 from src.services.account_strategy_service import normalize_account_strategy
-from src.infrastructure.persistence.storage_names import build_result_filename
-from src.services.price_history_service import delete_price_snapshots
-from src.services.result_storage_service import delete_result_file_records
 from src.api.routes import websocket
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -75,6 +72,7 @@ async def create_task(
     """创建新任务"""
     task = await service.create_task(task_create)
     await _reload_scheduler_if_needed(service, scheduler_service)
+    await websocket.broadcast_message("tasks_updated", {"id": task.id, "action": "created"})
     return {"message": "任务创建成功", "task": serialize_task(task, scheduler_service)}
 @router.patch("/{task_id}", response_model=dict)
 async def update_task(
@@ -104,6 +102,7 @@ async def update_task(
                 raise HTTPException(status_code=400, detail="关键词监控至少需要一个匹配关键词。")
         task = await service.update_task(task_id, task_update)
         await _reload_scheduler_if_needed(service, scheduler_service)
+        await websocket.broadcast_message("tasks_updated", {"id": task_id, "action": "updated"})
         return {"message": "任务更新成功", "task": serialize_task(task, scheduler_service)}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -124,19 +123,8 @@ async def delete_task(
     if not success:
         raise HTTPException(status_code=404, detail="任务未找到")
     await _reload_scheduler_if_needed(service, scheduler_service)
-    try:
-        keyword = (task.keyword or "").strip()
-        if keyword:
-            remaining_tasks = await service.get_all_tasks()
-            keyword_still_in_use = any(
-                (remaining_task.keyword or "").strip() == keyword
-                for remaining_task in remaining_tasks
-            )
-            if not keyword_still_in_use:
-                await delete_result_file_records(build_result_filename(keyword))
-                delete_price_snapshots(keyword)
-    except Exception as e:
-        print(f"删除任务结果文件时出错: {e}")
+    await websocket.broadcast_message("tasks_updated", {"id": task_id, "action": "deleted"})
+    await websocket.broadcast_message("results_updated", {"task_id": task_id, "action": "deleted"})
 
     try:
         log_file_path = resolve_task_log_path(task_id, task.task_name)

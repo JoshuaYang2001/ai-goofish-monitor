@@ -96,6 +96,17 @@ class SqliteTaskRepository(TaskRepository):
             task_id = task.id
             if task_id is None:
                 task_id = self._next_task_id(conn)
+            else:
+                existing = conn.execute(
+                    "SELECT task_name FROM tasks WHERE id = ?",
+                    (task_id,),
+                ).fetchone()
+                if existing and str(existing["task_name"]) != task.task_name:
+                    self._rename_task_data(
+                        conn,
+                        old_name=str(existing["task_name"]),
+                        new_name=task.task_name,
+                    )
             payload = self._task_values(task.model_copy(update={"id": task_id}))
             conn.execute(
                 """
@@ -122,9 +133,35 @@ class SqliteTaskRepository(TaskRepository):
             legacy_config_file=self.legacy_config_file,
         )
         with sqlite_connection(self.db_path) as conn:
+            task_row = conn.execute(
+                "SELECT task_name FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if task_row is None:
+                return False
+
+            task_name = str(task_row["task_name"])
+            conn.execute("DELETE FROM result_items WHERE task_name = ?", (task_name,))
+            conn.execute("DELETE FROM price_snapshots WHERE task_name = ?", (task_name,))
+            conn.execute(
+                "DELETE FROM item_metrics_history WHERE task_name = ?",
+                (task_name,),
+            )
             cursor = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             conn.commit()
         return cursor.rowcount > 0
+
+    def _rename_task_data(self, conn, *, old_name: str, new_name: str) -> None:
+        """任务改名时同步结构化历史数据，避免结果列表失去名称。"""
+        for table_name in (
+            "result_items",
+            "price_snapshots",
+            "item_metrics_history",
+        ):
+            conn.execute(
+                f"UPDATE {table_name} SET task_name = ? WHERE task_name = ?",
+                (new_name, old_name),
+            )
 
     def _next_task_id(self, conn) -> int:
         row = conn.execute("SELECT COALESCE(MAX(id), -1) AS max_id FROM tasks").fetchone()

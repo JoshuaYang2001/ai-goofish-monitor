@@ -135,6 +135,7 @@ SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS item_metrics_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_name TEXT NOT NULL DEFAULT '',
         item_id TEXT NOT NULL,
         title TEXT NOT NULL,
         snapshot_time TEXT NOT NULL,

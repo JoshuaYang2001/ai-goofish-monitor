@@ -12,6 +12,7 @@ from src.services.auth_service import (
     create_tenant_with_owner,
     issue_token_pair,
     list_tenants,
+    register_tenant_member,
     revoke_refresh_token,
     rotate_refresh_token,
 )
@@ -31,6 +32,13 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class RegisterRequest(BaseModel):
+    admin_username: str = Field(min_length=3, max_length=80)
+    admin_password: str = Field(min_length=1, max_length=256)
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=8, max_length=256)
+
+
 class TenantCreateRequest(BaseModel):
     tenant_id: str = Field(min_length=1, max_length=63)
     tenant_name: str = Field(min_length=1, max_length=100)
@@ -47,6 +55,30 @@ async def login(payload: LoginRequest):
             detail="用户名、密码或租户不正确",
         )
     return issue_token_pair(identity)
+
+
+@router.post("/register", status_code=201)
+async def register(payload: RegisterRequest):
+    try:
+        identity = register_tenant_member(
+            payload.admin_username,
+            payload.admin_password,
+            payload.username,
+            payload.password,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "message": "账号注册成功",
+        "user": {
+            "id": identity.user_id,
+            "username": identity.username,
+            "role": identity.role,
+        },
+        "tenant": {"id": identity.tenant_id, "name": identity.tenant_name},
+    }
 
 
 @router.post("/refresh")

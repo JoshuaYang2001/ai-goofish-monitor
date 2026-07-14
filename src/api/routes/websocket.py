@@ -52,7 +52,7 @@ async def broadcast_message(message_type: str, data: dict):
     """仅向当前租户的连接广播消息。"""
     from src.tenancy.context import current_tenant_id
 
-    tenant_id = current_tenant_id()
+    tenant_id = current_tenant_id(required=False)
     message = {
         "type": message_type,
         "data": data

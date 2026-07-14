@@ -9,9 +9,17 @@ export interface GetResultContentParams {
   limit?: number;
 }
 
-export async function getResultFiles(): Promise<string[]> {
+export interface ResultFilesResponse {
+  files: string[]
+  taskNames: Record<string, string>
+}
+
+export async function getResultFiles(): Promise<ResultFilesResponse> {
   const data = await http('/api/results/files')
-  return data.files || []
+  return {
+    files: data.files || [],
+    taskNames: data.task_names || {},
+  }
 }
 
 export async function deleteResultFile(filename: string): Promise<{ message: string }> {

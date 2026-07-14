@@ -14,7 +14,7 @@ from src.services.result_file_service import (
 from src.services.result_storage_service import (
     build_result_ndjson,
     delete_result_file_records,
-    list_result_filenames,
+    list_result_file_entries,
     load_all_result_records,
     query_result_records,
     result_file_exists,
@@ -42,7 +42,13 @@ def _build_download_headers(export_name: str) -> dict[str, str]:
 @router.get("/files")
 async def get_result_files():
     """获取所有结果文件列表"""
-    return {"files": await list_result_filenames()}
+    entries = await list_result_file_entries()
+    return {
+        "files": [entry["filename"] for entry in entries],
+        "task_names": {
+            entry["filename"]: entry["task_name"] for entry in entries
+        },
+    }
 
 
 @router.get("/files/{filename:path}")
