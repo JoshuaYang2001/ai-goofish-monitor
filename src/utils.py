@@ -9,10 +9,10 @@ from datetime import datetime
 from functools import wraps
 from urllib.parse import quote
 
-from openai import APIStatusError
 from requests.exceptions import HTTPError
 
 from src.services.result_storage_service import save_result_record
+from src.tenancy.paths import tenant_path
 
 
 def retry_on_failure(retries=3, delay=5):
@@ -25,7 +25,7 @@ def retry_on_failure(retries=3, delay=5):
             for i in range(retries):
                 try:
                     return await func(*args, **kwargs)
-                except (APIStatusError, HTTPError) as e:
+                except HTTPError as e:
                     print(f"函数 {func.__name__} 第 {i + 1}/{retries} 次尝试失败，发生HTTP错误。")
                     if hasattr(e, 'status_code'):
                         print(f"  - 状态码 (Status Code): {e.status_code}")
@@ -87,7 +87,7 @@ def build_task_log_path(task_id: int, task_name: str) -> str:
     """生成任务日志路径（包含任务名）。"""
     safe_name = sanitize_filename(task_name)
     filename = f"{safe_name}_{task_id}.log"
-    return os.path.join("logs", filename)
+    return tenant_path(os.path.join("logs", filename))
 
 
 def resolve_task_log_path(task_id: int, task_name: str) -> str:
@@ -95,7 +95,7 @@ def resolve_task_log_path(task_id: int, task_name: str) -> str:
     primary_path = build_task_log_path(task_id, task_name)
     if os.path.exists(primary_path):
         return primary_path
-    pattern = os.path.join("logs", f"*_{task_id}.log")
+    pattern = tenant_path(os.path.join("logs", f"*_{task_id}.log"))
     matches = glob.glob(pattern)
     if matches:
         return matches[0]

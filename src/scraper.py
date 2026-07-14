@@ -12,20 +12,13 @@ from playwright.async_api import (
     async_playwright,
 )
 
-from src.ai_handler import (
-    download_all_images,
-    get_ai_analysis,
-    send_ntfy_notification,
-    cleanup_task_images,
-)
 from src.config import (
-    AI_DEBUG_MODE,
+    DEBUG_MODE,
     DETAIL_API_URL_PATTERN,
     LOGIN_IS_EDGE,
     RUN_HEADLESS,
     RUNNING_IN_DOCKER,
     get_state_file,
-    is_ai_enabled,
 )
 from src.parsers import (
     _parse_search_results_json,
@@ -61,6 +54,7 @@ from src.services.search_pagination import (
     advance_search_page,
     is_search_results_response,
 )
+from src.services.notification_service import build_notification_service
 
 
 class RiskControlError(Exception):
@@ -95,11 +89,8 @@ def _resolve_browser_channel() -> str:
     return "msedge" if LOGIN_IS_EDGE else "chrome"
 
 
-def _should_analyze_images(task_config: dict) -> bool:
-    raw_value = task_config.get("analyze_images", True)
-    if isinstance(raw_value, bool):
-        return raw_value
-    return str(raw_value).strip().lower() not in {"false", "0", "no", "off"}
+async def _send_notification(product_data: dict, reason: str) -> None:
+    await build_notification_service().send_notification(product_data, reason)
 
 
 def _format_failure_reason(reason: str, limit: int = 500) -> str:
@@ -159,7 +150,7 @@ async def _notify_task_failure(
     )
 
     try:
-        await send_ntfy_notification(product_data, notify_reason)
+        await _send_notification(product_data, notify_reason)
     except Exception as e:
         print(f"发送任务异常通知失败: {e}")
 
@@ -234,9 +225,9 @@ def _get_rotation_settings(task_config: dict) -> dict:
     }
 
 
-def _get_ai_analysis_concurrency(task_config: dict) -> int:
-    configured = task_config.get("ai_analysis_concurrency")
-    default = _as_int(os.getenv("AI_ANALYSIS_CONCURRENCY"), 2)
+def _get_processing_concurrency(task_config: dict) -> int:
+    configured = task_config.get("processing_concurrency")
+    default = _as_int(os.getenv("ITEM_PROCESSING_CONCURRENCY"), 2)
     return max(1, _as_int(configured, default))
 
 
@@ -329,10 +320,30 @@ def _build_context_overrides(snapshot: dict) -> dict:
 def _build_extra_headers(raw_headers: Optional[dict]) -> dict:
     if not raw_headers:
         return {}
-    excluded = {"cookie", "content-length"}
+    # 浏览器会按请求类型动态生成这些头。登录态快照采集的是页面导航请求，
+    # 若把 Sec-Fetch-Dest=document、Accept=text/html 等强制复用到 MTop XHR，
+    # 会让详情接口被服务端拒绝或根本无法正常发起。
+    excluded = {
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "connection",
+        "content-length",
+        "cookie",
+        "host",
+        "origin",
+        "referer",
+        "user-agent",
+    }
     headers = {}
     for key, value in raw_headers.items():
-        if not key or key.lower() in excluded or value is None:
+        normalized_key = str(key or "").lower()
+        if (
+            not normalized_key
+            or normalized_key in excluded
+            or normalized_key.startswith("sec-")
+            or value is None
+        ):
             continue
         headers[key] = value
     return headers
@@ -445,19 +456,16 @@ async def scrape_user_profile(context, user_id: str) -> dict:
 async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
     """
     【核心执行器】
-    根据单个任务配置，异步爬取闲鱼商品数据，并对每个新发现的商品进行实时的、独立的AI分析和通知。
+    根据单个任务配置抓取商品，并对每个新商品执行规则匹配、指标记录和通知。
     """
     keyword = task_config["keyword"]
     max_pages = task_config.get("max_pages", 1)
     personal_only = task_config.get("personal_only", False)
     min_price = task_config.get("min_price")
     max_price = task_config.get("max_price")
-    ai_prompt_text = task_config.get("ai_prompt_text", "")
-    analyze_images = _should_analyze_images(task_config)
-    decision_mode = str(task_config.get("decision_mode", "ai")).strip().lower()
-    if decision_mode not in {"ai", "keyword"}:
-        decision_mode = "ai"
     keyword_rules = task_config.get("keyword_rules") or []
+    if not keyword_rules and keyword:
+        keyword_rules = [keyword]
     free_shipping = task_config.get("free_shipping", False)
     raw_new_publish = task_config.get("new_publish_option") or ""
     new_publish_option = raw_new_publish.strip()
@@ -596,15 +604,12 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                 ttl_seconds=_get_seller_profile_cache_ttl(task_config)
             )
             analysis_dispatcher = ItemAnalysisDispatcher(
-                concurrency=_get_ai_analysis_concurrency(task_config),
-                skip_ai_analysis=not is_ai_enabled(),
+                concurrency=_get_processing_concurrency(task_config),
                 seller_loader=lambda user_id: seller_profile_cache.get_or_load(
                     str(user_id),
                     lambda seller_key: scrape_user_profile(context, seller_key),
                 ),
-                image_downloader=download_all_images,
-                ai_analyzer=get_ai_analysis,
-                notifier=send_ntfy_notification,
+                notifier=_send_notification,
                 saver=save_to_jsonl,
             )
 
@@ -1090,9 +1095,6 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                                         task_name=task_config.get(
                                             "task_name", "Untitled Task"
                                         ),
-                                        decision_mode=decision_mode,
-                                        analyze_images=analyze_images,
-                                        prompt_text=ai_prompt_text,
                                         keyword_rules=tuple(keyword_rules or []),
                                         final_record=final_record,
                                         seller_id=str(user_id) if user_id else None,
@@ -1116,7 +1118,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                                 print(
                                     f"   错误: 获取商品详情API响应失败，状态码: {detail_response.status}"
                                 )
-                                if AI_DEBUG_MODE:
+                                if DEBUG_MODE:
                                     print(
                                         f"--- [DETAIL DEBUG] FAILED RESPONSE from {item_data['商品链接']} ---"
                                     )
@@ -1166,7 +1168,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
                 raise
             finally:
                 if analysis_dispatcher is not None:
-                    log_time("等待后台分析任务完成...")
+                    log_time("等待后台商品处理任务完成...")
                     await analysis_dispatcher.join()
                 log_time("任务执行完毕，浏览器将在5秒后自动关闭...")
                 await asyncio.sleep(5)
@@ -1205,7 +1207,7 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
         )
         if decision.should_notify:
             try:
-                await send_ntfy_notification(
+                await _send_notification(
                     {
                         "商品标题": f"[任务暂停] {task_name_for_guard}",
                         "当前售价": "N/A",
@@ -1220,7 +1222,6 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
             except Exception as e:
                 print(f"发送任务暂停通知失败: {e}")
 
-        cleanup_task_images(task_config.get("task_name", "default"))
         return 0
 
     for attempt in range(1, attempt_limit + 1):
@@ -1285,9 +1286,6 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
     if last_error:
         await _notify_task_failure(task_config, last_error, cookie_path=last_state_path)
 
-    # 清理任务图片目录
-    cleanup_task_images(task_config.get("task_name", "default"))
-
     return processed_item_count
 
 
@@ -1300,8 +1298,6 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
         商品信息字典，如果失败则返回 None
     """
     from src.config import DETAIL_API_URL_PATTERN
-    from src.parsers import parse_user_head_data
-
     state_file = get_state_file()
     if not os.path.exists(state_file):
         raise FileNotFoundError(f"登录状态文件不存在：{state_file}")
@@ -1348,19 +1344,12 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
 
                 # 访问商品详情页（使用正确的 URL 格式：?id=xxx）
                 item_url = f"https://www.goofish.com/item?id={item_id}"
-                # 使用 domcontentloaded 只等待 DOM 加载完成，不等待所有资源
-                # 这样可以让 JavaScript 有机会在后台继续执行和发起 API 请求
-                await page.goto(item_url, wait_until="domcontentloaded", timeout=60000)
-
                 # 等待详情页 API 响应
-                # 闲鱼详情页是 SPA，需要等待 JavaScript 执行后发起 API 请求
+                # 必须在导航前注册监听，否则 SPA 可能已经完成详情请求，导致固定超时。
                 try:
-                    async with page.expect_response(
-                        lambda r: DETAIL_API_URL_PATTERN in r.url, timeout=50000
-                    ) as detail_info:
-                        pass
-
-                    detail_response = await detail_info.value
+                    detail_response = await _navigate_and_wait_for_detail_response(
+                        page, item_url
+                    )
                     if not detail_response.ok:
                         print(f"获取商品详情 API 失败：{detail_response.status}")
                         return None
@@ -1422,10 +1411,17 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
                     print("等待商品详情 API 超时")
                     # 尝试从页面直接获取内容作为后备
                     try:
+                        if _is_login_url(page.url):
+                            print("商品详情页已跳转到登录页，请重新更新该租户的登录状态")
+                            return None
                         page_content = await page.content()
                         if "FAIL_SYS_USER_VALIDATE" in page_content or "验证" in page_content:
                             print("检测到风控验证页面")
                             return None
+                        if "网络不见了" in page_content:
+                            print("商品详情页显示网络异常，闲鱼未发起详情接口请求")
+                        elif "立即登录" in page_content:
+                            print("商品详情页未识别到有效登录状态，请重新登录闲鱼")
                     except:
                         pass
                     return None
@@ -1438,16 +1434,26 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
         return None
 
 
+async def _navigate_and_wait_for_detail_response(page, item_url: str) -> Response:
+    """在页面导航前监听详情接口，避免漏掉导航期间发出的响应。"""
+    async with page.expect_response(
+        lambda response: DETAIL_API_URL_PATTERN in response.url,
+        timeout=50000,
+    ) as detail_info:
+        await page.goto(item_url, wait_until="domcontentloaded", timeout=60000)
+    return await detail_info.value
+
+
 async def scrape_items_by_id_batch(
     item_ids: List[str],
     task_config: dict,
     debug_limit: int = 0,
 ) -> int:
     """
-    批量通过商品 ID 获取商品详情并执行分析
+    批量通过商品 ID 获取商品详情并执行规则处理
     Args:
         item_ids: 商品 ID 列表
-        task_config: 任务配置（包含 AI prompt、通知设置等）
+        task_config: 任务配置（包含匹配规则、通知设置等）
         debug_limit: 调试模式限制数量（0 表示不限制）
     Returns:
         成功处理的商品数量
@@ -1456,16 +1462,9 @@ async def scrape_items_by_id_batch(
         ItemAnalysisDispatcher,
         ItemAnalysisJob,
     )
-    from src.services.seller_profile_cache import SellerProfileCache
-
     task_name = task_config.get("task_name", "商品 ID 监控")
     keyword = task_config.get("keyword") or task_name or "item_id_monitor"
-    ai_prompt_text = task_config.get("ai_prompt_text", "")
-    analyze_images = _should_analyze_images(task_config)
-    decision_mode = str(task_config.get("decision_mode", "ai")).strip().lower()
-    if decision_mode not in {"ai", "keyword"}:
-        decision_mode = "ai"
-    keyword_rules = task_config.get("keyword_rules") or []
+    keyword_rules = list(dict.fromkeys(str(item_id).strip() for item_id in item_ids if str(item_id).strip()))
 
     # 限制调试模式数量
     if debug_limit > 0:
@@ -1473,43 +1472,21 @@ async def scrape_items_by_id_batch(
 
     print(f"开始批量抓取 {len(item_ids)} 个商品 ID...")
 
-    # 创建分析分发器
-    seller_cache = SellerProfileCache()
-
-    def _get_seller_profile_cache_ttl(cfg: dict) -> int:
-        raw = cfg.get("seller_cache_ttl_hours", 24)
-        try:
-            return max(1, int(raw))
-        except (TypeError, ValueError):
-            return 24
-
-    async def _load_seller_info(seller_id: str) -> dict:
-        return await seller_cache.fetch(seller_id)
-
-    async def _download_images(item_data: dict, image_urls: list, task_name: str) -> list:
-        if not image_urls:
-            return []
-        from src.ai_handler import download_all_images
-        return await download_all_images(image_urls, task_name, item_data)
-
-    async def _analyze_item(item_data: dict, image_paths: list, prompt: str) -> Optional[dict]:
-        from src.ai_handler import get_ai_analysis
-        return await get_ai_analysis(item_data, image_paths, prompt)
+    async def _load_seller_info(_seller_id: str) -> dict:
+        # 商品详情响应已经包含 ID 模式所需的卖家昵称与芝麻信用。
+        # 这里不再额外启动浏览器抓取卖家主页，避免重复请求和无效缓存调用。
+        return {}
 
     async def _send_notification(item_data: dict, reason: str) -> None:
-        from src.ai_handler import send_ntfy_notification
-        await send_ntfy_notification(item_data, reason)
+        await build_notification_service().send_notification(item_data, reason)
 
     async def _save_result(record: dict, kw: str) -> bool:
         from src.services.result_storage_service import save_result_record
         return await save_result_record(record, kw)
 
     analysis_dispatcher = ItemAnalysisDispatcher(
-        concurrency=_get_ai_analysis_concurrency(task_config),
-        skip_ai_analysis=not is_ai_enabled(),
+        concurrency=_get_processing_concurrency(task_config),
         seller_loader=_load_seller_info,
-        image_downloader=_download_images,
-        ai_analyzer=_analyze_item,
         notifier=_send_notification,
         saver=_save_result,
     )
@@ -1566,9 +1543,6 @@ async def scrape_items_by_id_batch(
                 ItemAnalysisJob(
                     keyword=keyword,
                     task_name=task_name,
-                    decision_mode=decision_mode,
-                    analyze_images=analyze_images,
-                    prompt_text=ai_prompt_text,
                     keyword_rules=tuple(keyword_rules),
                     final_record=final_record,
                     seller_id=seller_id if seller_id else None,
@@ -1582,8 +1556,8 @@ async def scrape_items_by_id_batch(
             print(f"   商品 {item_id} 处理失败：{e}")
             continue
 
-    # 等待所有分析任务完成
-    log_time("等待后台分析任务完成...")
+    # 等待所有商品处理任务完成
+    log_time("等待后台商品处理任务完成...")
     await analysis_dispatcher.join()
 
     print(f"批量抓取完成，成功处理 {processed_count}/{len(item_ids)} 个商品")

@@ -6,25 +6,60 @@ import json
 from urllib.parse import urlparse
 
 from src.infrastructure.config.env_manager import env_manager
-from src.infrastructure.config.settings import NotificationSettings
+from src.infrastructure.config.settings import NotificationSettings, DEFAULT_TELEGRAM_API_BASE_URL
 
 
 NOTIFICATION_FIELD_MAP = {
+    "NTFY_TOPIC_URL": "ntfy_topic_url",
+    "GOTIFY_URL": "gotify_url",
+    "GOTIFY_TOKEN": "gotify_token",
+    "BARK_URL": "bark_url",
+    "WX_BOT_URL": "wx_bot_url",
+    "TELEGRAM_BOT_TOKEN": "telegram_bot_token",
+    "TELEGRAM_CHAT_ID": "telegram_chat_id",
+    "TELEGRAM_API_BASE_URL": "telegram_api_base_url",
+    "WEBHOOK_URL": "webhook_url",
+    "WEBHOOK_METHOD": "webhook_method",
+    "WEBHOOK_HEADERS": "webhook_headers",
+    "WEBHOOK_CONTENT_TYPE": "webhook_content_type",
+    "WEBHOOK_QUERY_PARAMETERS": "webhook_query_parameters",
+    "WEBHOOK_BODY": "webhook_body",
     "FEISHU_WEBHOOK_URL": "feishu_webhook_url",
     "PCURL_TO_MOBILE": "pcurl_to_mobile",
 }
 
 CHANNEL_NOTIFICATION_FIELDS = {
+    "ntfy": {"NTFY_TOPIC_URL"},
+    "gotify": {"GOTIFY_URL", "GOTIFY_TOKEN"},
+    "bark": {"BARK_URL"},
+    "wecom": {"WX_BOT_URL"},
+    "telegram": {"TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_BASE_URL"},
+    "webhook": {
+        "WEBHOOK_URL", "WEBHOOK_METHOD", "WEBHOOK_HEADERS",
+        "WEBHOOK_CONTENT_TYPE", "WEBHOOK_QUERY_PARAMETERS", "WEBHOOK_BODY",
+    },
     "feishu": {"FEISHU_WEBHOOK_URL"},
 }
 
 SECRET_NOTIFICATION_FIELDS = {
+    "GOTIFY_TOKEN",
+    "BARK_URL",
+    "WX_BOT_URL",
+    "TELEGRAM_BOT_TOKEN",
+    "WEBHOOK_URL",
+    "WEBHOOK_HEADERS",
     "FEISHU_WEBHOOK_URL",
 }
 
-JSON_NOTIFICATION_FIELDS = {}
+JSON_NOTIFICATION_FIELDS = {
+    "WEBHOOK_HEADERS": True,
+    "WEBHOOK_QUERY_PARAMETERS": True,
+    "WEBHOOK_BODY": False,
+}
 
 URL_FIELDS = {
+    "NTFY_TOPIC_URL", "GOTIFY_URL", "BARK_URL", "WX_BOT_URL",
+    "TELEGRAM_API_BASE_URL", "WEBHOOK_URL",
     "FEISHU_WEBHOOK_URL",
 }
 
@@ -47,9 +82,11 @@ def build_notification_settings_response(
 ) -> dict:
     notification_settings = settings or load_notification_settings()
     response = {
-        "FEISHU_WEBHOOK_URL": "",
         "PCURL_TO_MOBILE": notification_settings.pcurl_to_mobile,
     }
+    for env_name, attr_name in NOTIFICATION_FIELD_MAP.items():
+        value = getattr(notification_settings, attr_name)
+        response[env_name] = "" if env_name in SECRET_NOTIFICATION_FIELDS else (value or "")
     for field in SECRET_NOTIFICATION_FIELDS:
         attr_name = NOTIFICATION_FIELD_MAP[field]
         response[f"{field}_SET"] = bool(getattr(notification_settings, attr_name))
@@ -62,6 +99,14 @@ def build_notification_status_flags(
 ) -> dict:
     notification_settings = settings or load_notification_settings()
     return {
+        "ntfy_topic_url_set": bool(notification_settings.ntfy_topic_url),
+        "gotify_url_set": bool(notification_settings.gotify_url),
+        "gotify_token_set": bool(notification_settings.gotify_token),
+        "bark_url_set": bool(notification_settings.bark_url),
+        "wx_bot_url_set": bool(notification_settings.wx_bot_url),
+        "telegram_bot_token_set": bool(notification_settings.telegram_bot_token),
+        "telegram_chat_id_set": bool(notification_settings.telegram_chat_id),
+        "webhook_url_set": bool(notification_settings.webhook_url),
         "feishu_webhook_url_set": bool(notification_settings.feishu_webhook_url),
     }
 
@@ -71,6 +116,18 @@ def build_configured_channels(
 ) -> list[str]:
     notification_settings = settings or load_notification_settings()
     channels = []
+    if notification_settings.ntfy_topic_url:
+        channels.append("ntfy")
+    if notification_settings.gotify_url and notification_settings.gotify_token:
+        channels.append("gotify")
+    if notification_settings.bark_url:
+        channels.append("bark")
+    if notification_settings.wx_bot_url:
+        channels.append("wecom")
+    if notification_settings.telegram_bot_token and notification_settings.telegram_chat_id:
+        channels.append("telegram")
+    if notification_settings.webhook_url:
+        channels.append("webhook")
     if notification_settings.feishu_webhook_url:
         channels.append("feishu")
     return channels
@@ -170,10 +227,23 @@ def _build_channel_test_values(
 def load_notification_settings() -> NotificationSettings:
     return _build_notification_settings_model(
         {
-            "feishu_webhook_url": _normalize_existing_text(env_manager.get_value("FEISHU_WEBHOOK_URL")),
+            attr_name: _load_field_value(env_name)
+            for env_name, attr_name in NOTIFICATION_FIELD_MAP.items()
+        } | {
             "pcurl_to_mobile": _env_bool(env_manager.get_value("PCURL_TO_MOBILE"), True),
         }
     )
+
+
+def _load_field_value(env_name: str):
+    value = _normalize_existing_text(env_manager.get_value(env_name))
+    if env_name == "TELEGRAM_API_BASE_URL":
+        return value or DEFAULT_TELEGRAM_API_BASE_URL
+    if env_name == "WEBHOOK_METHOD":
+        return value or "POST"
+    if env_name == "WEBHOOK_CONTENT_TYPE":
+        return value or "JSON"
+    return value
 
 
 def _build_notification_settings_model(values: dict) -> NotificationSettings:
@@ -205,12 +275,40 @@ def _env_bool(value: str | None, default: bool) -> bool:
 
 
 def _normalize_notification_values(values: dict) -> dict:
-    return values
+    normalized = dict(values)
+    normalized["telegram_api_base_url"] = (
+        normalized.get("telegram_api_base_url") or DEFAULT_TELEGRAM_API_BASE_URL
+    )
+    normalized["webhook_method"] = str(
+        normalized.get("webhook_method") or "POST"
+    ).upper()
+    normalized["webhook_content_type"] = str(
+        normalized.get("webhook_content_type") or "JSON"
+    ).upper()
+    normalized["pcurl_to_mobile"] = bool(
+        normalized.get("pcurl_to_mobile", True)
+    )
+    return normalized
 
 
 def _validate_notification_settings(settings: NotificationSettings) -> None:
-    if settings.feishu_webhook_url is not None:
-        _validate_http_url("FEISHU_WEBHOOK_URL", settings.feishu_webhook_url)
+    for env_name in URL_FIELDS:
+        value = getattr(settings, NOTIFICATION_FIELD_MAP[env_name])
+        if value is not None:
+            _validate_http_url(env_name, value)
+    _validate_pair("GOTIFY_URL", settings.gotify_url, "GOTIFY_TOKEN", settings.gotify_token)
+    _validate_pair(
+        "TELEGRAM_BOT_TOKEN", settings.telegram_bot_token,
+        "TELEGRAM_CHAT_ID", settings.telegram_chat_id,
+    )
+    if settings.webhook_method not in ALLOWED_WEBHOOK_METHODS:
+        raise NotificationSettingsValidationError("WEBHOOK_METHOD 只能是 GET 或 POST")
+    if settings.webhook_content_type not in ALLOWED_WEBHOOK_CONTENT_TYPES:
+        raise NotificationSettingsValidationError("WEBHOOK_CONTENT_TYPE 只能是 JSON 或 FORM")
+    for env_name, expect_dict in JSON_NOTIFICATION_FIELDS.items():
+        value = getattr(settings, NOTIFICATION_FIELD_MAP[env_name])
+        if value:
+            _parse_json_field(env_name, value, expect_dict)
 
 
 def _validate_http_url(field_name: str, value: str) -> None:

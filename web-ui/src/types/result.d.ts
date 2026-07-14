@@ -30,20 +30,15 @@ export interface SellerInfo {
   "作为卖家的好评率"?: string;
   "作为买家的好评数"?: string;
   "作为买家的好评率"?: string;
-  "卖家发布的商品列表"?: any[]; // Define more strictly if needed
-  "卖家收到的评价列表"?: any[]; // Define more strictly if needed
+  "卖家发布的商品列表"?: unknown[];
+  "卖家收到的评价列表"?: unknown[];
 }
 
-export interface AiAnalysis {
+export interface MatchAnalysis {
   is_recommended: boolean;
   reason: string;
-  analysis_source?: 'ai' | 'keyword';
+  analysis_source?: 'keyword' | 'direct';
   keyword_hit_count?: number;
-  value_score?: number;
-  value_summary?: string;
-  prompt_version?: string;
-  risk_tags?: string[];
-  criteria_analysis?: Record<string, any>;
   matched_keywords?: string[];
   error?: string;
 }
@@ -99,6 +94,6 @@ export interface ResultItem {
   "任务名称": string;
   "商品信息": ProductInfo;
   "卖家信息": SellerInfo;
-  ai_analysis: AiAnalysis;
+  match_result: MatchAnalysis;
   price_insight?: PriceInsight;
 }

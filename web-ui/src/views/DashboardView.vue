@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useDashboard } from '@/composables/useDashboard'
-import { useSettings } from '@/composables/useSettings'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import Badge from '@/components/ui/badge/Badge.vue'
@@ -15,14 +14,12 @@ import {
   Compass,
   LayoutDashboard,
   Search,
-  Sparkles,
   Target,
   Zap,
 } from 'lucide-vue-next'
 
 const router = useRouter()
 const { t } = useI18n()
-const { isAiEnabled: isAiEnabledGlobal } = useSettings()
 const {
   focusInsights,
   focusTask,
@@ -53,10 +50,7 @@ const statCards = computed(() => [
   {
     label: t('dashboard.stats.recommendedItems'),
     value: String(stats.value.recommendedItems),
-    detail: t('dashboard.stats.recommendedBreakdown', {
-      ai: stats.value.aiRecommendedItems,
-      keyword: stats.value.keywordRecommendedItems,
-    }),
+    detail: t('dashboard.stats.ruleMatched', { count: stats.value.ruleMatchedItems }),
     icon: Target,
     color: 'text-amber-500',
     bg: 'bg-amber-500/10',
@@ -278,8 +272,7 @@ function openActivity(activity: { filename: string | null; type: string }) {
             </button>
           </CardContent>
         </Card>
-        <!-- AI Strategy Card - Only show when AI is enabled -->
-        <div v-if="isAiEnabledGlobal" class="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-2xl p-6 text-white shadow-lg shadow-indigo-200">
+        <div class="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-2xl p-6 text-white shadow-lg shadow-indigo-200">
           <div class="flex items-center gap-2 mb-4">
             <Zap class="w-6 h-6 text-amber-300" />
             <h4 class="font-bold text-lg">{{ t('dashboard.suggestion.sectionTitle') }}</h4>
@@ -287,7 +280,7 @@ function openActivity(activity: { filename: string | null; type: string }) {
           <p class="text-indigo-100 text-sm leading-relaxed mb-2">{{ suggestion.title }}</p>
           <p class="text-indigo-100/90 text-sm leading-relaxed mb-6">{{ suggestion.description }}</p>
           <Button variant="secondary" class="w-full bg-white text-indigo-700 font-bold hover:bg-indigo-50" @click="openSuggestion">
-            <Sparkles class="mr-2 h-4 w-4" />
+            <Target class="mr-2 h-4 w-4" />
             {{ suggestion.actionLabel }}
           </Button>
         </div>

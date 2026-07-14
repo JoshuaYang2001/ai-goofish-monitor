@@ -2,9 +2,7 @@ import type { ResultInsights, ResultItem } from '@/types/result.d.ts'
 import { http } from '@/lib/http'
 
 export interface GetResultContentParams {
-  recommended_only?: boolean;
-  ai_recommended_only?: boolean;
-  keyword_recommended_only?: boolean;
+  matched_only?: boolean;
   sort_by?: 'crawl_time' | 'publish_time' | 'price' | 'keyword_hit_count';
   sort_order?: 'asc' | 'desc';
   page?: number;
@@ -24,7 +22,9 @@ export async function getResultContent(
   filename: string,
   params: GetResultContentParams = {}
 ): Promise<{ total_items: number; items: ResultItem[] }> {
-  return await http(`/api/results/${filename}`, { params: params as Record<string, any> })
+  return await http(`/api/results/${filename}`, {
+    params: params as Record<string, string | number | boolean | undefined>,
+  })
 }
 
 export async function getResultInsights(filename: string): Promise<ResultInsights> {

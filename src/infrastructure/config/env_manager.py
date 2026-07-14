@@ -8,6 +8,8 @@ from typing import Dict, List, Optional
 from pathlib import Path
 
 from dotenv import dotenv_values
+from src.tenancy.context import current_tenant_id
+from src.tenancy.paths import tenant_path
 
 
 _PLAIN_ENV_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9_./:-]+$")
@@ -17,8 +19,22 @@ class EnvManager:
     """环境变量管理器"""
 
     def __init__(self, env_file: str = ".env"):
-        self.env_file = Path(env_file)
+        self._default_env_file = Path(env_file)
+        self._env_file_override: Path | None = None
         self._ensure_env_file_exists()
+
+    @property
+    def env_file(self) -> Path:
+        if getattr(self, "_env_file_override", None) is not None:
+            return self._env_file_override
+        try:
+            return Path(tenant_path(".env", current_tenant_id()))
+        except RuntimeError:
+            return self._default_env_file
+
+    @env_file.setter
+    def env_file(self, value: str | Path) -> None:
+        self._env_file_override = Path(value)
 
     def _ensure_env_file_exists(self):
         """确保 .env 文件存在"""
@@ -38,7 +54,14 @@ class EnvManager:
         }
 
     def get_value(self, key: str, default: Optional[str] = None) -> Optional[str]:
-        """获取单个环境变量的值，优先返回运行时环境变量"""
+        """获取单个环境变量的值；租户文件优先于共享运行时配置。"""
+        try:
+            current_tenant_id()
+            tenant_value = self.read_env().get(key)
+            if tenant_value is not None:
+                return tenant_value
+        except RuntimeError:
+            pass
         runtime_value = os.getenv(key)
         if runtime_value is not None:
             return runtime_value
@@ -84,6 +107,7 @@ class EnvManager:
     def _write_env(self, env_vars: Dict[str, str]) -> bool:
         """写入环境变量到文件"""
         try:
+            self.env_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.env_file, 'w', encoding='utf-8') as f:
                 for key, value in env_vars.items():
                     f.write(f"{key}={self._serialize_value(value)}\n")

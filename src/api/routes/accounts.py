@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List
 from src.infrastructure.config.env_manager import env_manager
+from src.tenancy.paths import tenant_path
 
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
@@ -35,7 +36,10 @@ def _strip_quotes(value: str) -> str:
 
 def _state_dir() -> str:
     raw = env_manager.get_value("ACCOUNT_STATE_DIR", "state") or "state"
-    return _strip_quotes(raw.strip())
+    configured = _strip_quotes(raw.strip())
+    if os.path.isabs(configured):
+        return configured
+    return tenant_path(configured)
 
 
 def _ensure_state_dir(path: str) -> None:

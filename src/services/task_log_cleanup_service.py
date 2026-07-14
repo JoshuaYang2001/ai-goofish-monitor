@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from src.tenancy.paths import tenant_path
 
 
 def cleanup_task_logs(
@@ -17,7 +18,7 @@ def cleanup_task_logs(
         print(f"任务日志清理已跳过：保留天数配置无效 ({keep_days})")
         return []
 
-    root = Path(logs_dir)
+    root = Path(logs_dir if Path(logs_dir).is_absolute() else tenant_path(logs_dir))
     if not root.exists():
         return []
 

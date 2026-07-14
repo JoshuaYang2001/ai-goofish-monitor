@@ -13,7 +13,6 @@ cd "$SCRIPT_DIR"
 PYTHON_CMD="${PYTHON_CMD:-python3}"
 MARK_EXPRESSION=""
 DRY_RUN=false
-WITH_GENERATION=true
 PYTEST_ARGS=()
 TASK_CREATE_TEST="tests/integration/test_api_tasks.py::test_create_list_update_delete_task"
 TEST_TARGETS=(
@@ -32,16 +31,13 @@ usage() {
   --task-name <名称>           覆盖 LIVE_TEST_TASK_NAME
   --timeout <秒>               覆盖 LIVE_TIMEOUT_SECONDS
   --min-items <数量>           覆盖 LIVE_EXPECT_MIN_ITEMS
-  --debug-limit <数量>         覆盖 LIVE_TEST_DEBUG_LIMIT（默认 1，仅分析前 N 个新商品）
-  --with-generation            显式开启 live_slow（默认已开启）
-  --without-generation         关闭 live_slow，只执行主 smoke
+  --debug-limit <数量>         覆盖 LIVE_TEST_DEBUG_LIMIT（默认 1，仅处理前 N 个新商品）
   --dry-run                    只打印配置和将执行的命令，不真正运行
   --help                       显示帮助
 
 示例:
   ./run_live_smoke.sh
   ./run_live_smoke.sh --keyword "MacBook Air M1" --min-items 2
-  ./run_live_smoke.sh --without-generation
   ./run_live_smoke.sh -- -k live_real_traffic
 
 说明:
@@ -49,7 +45,7 @@ usage() {
   1. 脚本会自动设置 RUN_LIVE_TESTS=1
   2. 若未设置 LIVE_TEST_ACCOUNT_STATE_FILE，会自动尝试使用 state/ 下第一个 *.json
   3. 默认使用 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1，避免本机第三方 pytest 插件干扰
-  4. 默认设置 LIVE_TEST_DEBUG_LIMIT=1，使冒烟测试只抓取并分析 1 个新商品
+  4. 默认设置 LIVE_TEST_DEBUG_LIMIT=1，使冒烟测试只抓取并处理 1 个新商品
 EOF
 }
 
@@ -102,14 +98,6 @@ while [[ $# -gt 0 ]]; do
             require_value "$1" "${2:-}"
             export LIVE_TEST_DEBUG_LIMIT="$2"
             shift 2
-            ;;
-        --with-generation)
-            WITH_GENERATION=true
-            shift
-            ;;
-        --without-generation)
-            WITH_GENERATION=false
-            shift
             ;;
         --dry-run)
             DRY_RUN=true
@@ -171,14 +159,6 @@ if [[ ! -f "${LIVE_TEST_ACCOUNT_STATE_FILE}" ]]; then
     exit 1
 fi
 
-if [[ "$WITH_GENERATION" == "true" ]]; then
-    export LIVE_ENABLE_TASK_GENERATION=1
-    MARK_EXPRESSION=""
-else
-    export LIVE_ENABLE_TASK_GENERATION=0
-    MARK_EXPRESSION="not live_slow"
-fi
-
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}闲鱼真实流量 Live Smoke 一键测试${NC}"
 echo -e "${GREEN}========================================${NC}"
@@ -187,9 +167,8 @@ echo -e "${YELLOW}关键词:${NC} ${LIVE_TEST_KEYWORD}"
 echo -e "${YELLOW}任务名:${NC} ${LIVE_TEST_TASK_NAME}"
 echo -e "${YELLOW}登录态:${NC} ${LIVE_TEST_ACCOUNT_STATE_FILE}"
 echo -e "${YELLOW}最少结果数:${NC} ${LIVE_EXPECT_MIN_ITEMS}"
-echo -e "${YELLOW}抓取/分析商品上限:${NC} ${LIVE_TEST_DEBUG_LIMIT}"
+echo -e "${YELLOW}抓取/处理商品上限:${NC} ${LIVE_TEST_DEBUG_LIMIT}"
 echo -e "${YELLOW}超时(秒):${NC} ${LIVE_TIMEOUT_SECONDS}"
-echo -e "${YELLOW}任务生成慢用例:${NC} ${LIVE_ENABLE_TASK_GENERATION}"
 echo -e "${YELLOW}任务创建前置用例:${NC} ${TASK_CREATE_TEST}"
 if [[ -n "$MARK_EXPRESSION" ]]; then
     echo -e "${YELLOW}Pytest Marker:${NC} ${MARK_EXPRESSION}"

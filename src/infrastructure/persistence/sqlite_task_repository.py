@@ -11,12 +11,13 @@ from src.domain.models.task import Task
 from src.domain.repositories.task_repository import TaskRepository
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_connection import sqlite_connection
+from src.tenancy.context import DEFAULT_TENANT_ID, current_tenant_id, has_tenant_context
+from src.tenancy.paths import tenant_path
 
 
 def _row_to_task(row) -> Task:
     payload = dict(row)
     payload["enabled"] = bool(payload["enabled"])
-    payload["analyze_images"] = bool(payload["analyze_images"])
     payload["personal_only"] = bool(payload["personal_only"])
     payload["free_shipping"] = bool(payload["free_shipping"])
     payload["is_running"] = bool(payload["is_running"])
@@ -46,7 +47,15 @@ class SqliteTaskRepository(TaskRepository):
         legacy_config_file: str | None = "config.json",
     ):
         self.db_path = db_path
-        self.legacy_config_file = legacy_config_file
+        tenant_id = current_tenant_id(required=False)
+        if legacy_config_file == "config.json" and has_tenant_context():
+            self.legacy_config_file = (
+                tenant_path("config.json", tenant_id)
+                if tenant_id == DEFAULT_TENANT_ID
+                else None
+            )
+        else:
+            self.legacy_config_file = legacy_config_file
 
     async def find_all(self) -> List[Task]:
         return await asyncio.to_thread(self._find_all_sync)
@@ -91,17 +100,15 @@ class SqliteTaskRepository(TaskRepository):
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tasks (
-                    id, task_name, task_type, enabled, keyword, item_id_list_json, description,
-                    analyze_images, max_pages, personal_only, min_price, max_price, cron,
-                    ai_prompt_base_file, ai_prompt_criteria_file, account_state_file,
+                    id, task_name, task_type, enabled, keyword, item_id_list_json,
+                    max_pages, personal_only, min_price, max_price, cron, account_state_file,
                     account_strategy, free_shipping, new_publish_option, region,
-                    decision_mode, keyword_rules_json, is_running, is_paused
+                    keyword_rules_json, is_running, is_paused
                 ) VALUES (
-                    :id, :task_name, :task_type, :enabled, :keyword, :item_id_list_json, :description,
-                    :analyze_images, :max_pages, :personal_only, :min_price, :max_price, :cron,
-                    :ai_prompt_base_file, :ai_prompt_criteria_file, :account_state_file,
+                    :id, :task_name, :task_type, :enabled, :keyword, :item_id_list_json,
+                    :max_pages, :personal_only, :min_price, :max_price, :cron, :account_state_file,
                     :account_strategy, :free_shipping, :new_publish_option, :region,
-                    :decision_mode, :keyword_rules_json, :is_running, :is_paused
+                    :keyword_rules_json, :is_running, :is_paused
                 )
                 """,
                 payload,
@@ -126,7 +133,6 @@ class SqliteTaskRepository(TaskRepository):
     def _task_values(self, task: Task) -> dict:
         values = task.model_dump()
         values["enabled"] = int(task.enabled)
-        values["analyze_images"] = int(task.analyze_images)
         values["personal_only"] = int(task.personal_only)
         values["free_shipping"] = int(task.free_shipping)
         values["is_running"] = int(task.is_running)

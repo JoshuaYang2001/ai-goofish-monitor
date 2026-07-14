@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Iterator
 
 from src.infrastructure.persistence.storage_names import DEFAULT_DATABASE_PATH
+from src.tenancy.context import current_tenant_id
+from src.tenancy.paths import tenant_database_path
 
 
 BUSY_TIMEOUT_MS = 5000
@@ -29,21 +31,16 @@ SCHEMA_STATEMENTS = (
         enabled INTEGER NOT NULL,
         keyword TEXT,
         item_id_list_json TEXT NOT NULL DEFAULT '[]',
-        description TEXT,
-        analyze_images INTEGER NOT NULL,
         max_pages INTEGER NOT NULL,
         personal_only INTEGER NOT NULL,
         min_price TEXT,
         max_price TEXT,
         cron TEXT,
-        ai_prompt_base_file TEXT NOT NULL,
-        ai_prompt_criteria_file TEXT NOT NULL,
         account_state_file TEXT,
         account_strategy TEXT NOT NULL,
         free_shipping INTEGER NOT NULL,
         new_publish_option TEXT,
         region TEXT,
-        decision_mode TEXT NOT NULL,
         keyword_rules_json TEXT NOT NULL,
         is_running INTEGER NOT NULL,
         is_paused INTEGER NOT NULL DEFAULT 0
@@ -197,7 +194,14 @@ SCHEMA_STATEMENTS = (
 
 
 def get_database_path() -> str:
-    return os.getenv("APP_DATABASE_FILE", DEFAULT_DATABASE_PATH)
+    explicit_path = os.getenv("APP_DATABASE_FILE")
+    tenant_id = os.getenv("TENANT_ID")
+    if tenant_id:
+        return tenant_database_path(tenant_id)
+    try:
+        return tenant_database_path(current_tenant_id())
+    except RuntimeError:
+        return explicit_path or DEFAULT_DATABASE_PATH
 
 
 def _prepare_database_file(path: str) -> None:
@@ -213,11 +217,6 @@ def _apply_pragmas(conn: sqlite3.Connection) -> None:
 def init_schema(conn: sqlite3.Connection) -> None:
     for statement in SCHEMA_STATEMENTS:
         conn.execute(statement)
-    # 初始化 AI 开关默认值
-    conn.execute("""
-        INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-        VALUES ('ai_enabled', 'true', datetime('now'))
-    """)
     conn.commit()
 
 

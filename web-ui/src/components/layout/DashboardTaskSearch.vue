@@ -2,7 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { LoaderCircle, Search, Sparkles } from 'lucide-vue-next'
+import { LoaderCircle, Search, Target } from 'lucide-vue-next'
 import Badge from '@/components/ui/badge/Badge.vue'
 import * as taskApi from '@/api/tasks'
 import { useWebSocket } from '@/composables/useWebSocket'
@@ -47,7 +47,6 @@ function matchesTask(task: Task, value: string) {
   const fields = [
     task.task_name,
     task.keyword,
-    task.description || '',
     task.region || '',
   ]
   return fields.some((field) => field && field.toLowerCase().includes(value))
@@ -244,20 +243,13 @@ onBeforeUnmount(() => {
               >
                 {{ getTaskMeta(task) }}
               </p>
-              <p
-                v-if="task.description"
-                class="mt-1 truncate text-xs"
-                :class="index === highlightedIndex ? 'text-white/70' : 'text-slate-400'"
-              >
-                {{ task.description }}
-              </p>
             </div>
           </button>
         </div>
 
         <div class="flex items-center justify-between border-t border-slate-100 bg-slate-50/80 px-4 py-3 text-[11px] text-slate-500">
           <div class="flex items-center gap-2">
-            <Sparkles class="h-3.5 w-3.5 text-primary" />
+            <Target class="h-3.5 w-3.5 text-primary" />
             {{ t('tasks.search.footerHint') }}
           </div>
           <div class="hidden items-center gap-2 md:flex">

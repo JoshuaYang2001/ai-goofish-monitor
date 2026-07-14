@@ -22,8 +22,7 @@ interface Props {
   files: string[]
   fileOptions?: FileOption[]
   selectedFile: string | null
-  aiRecommendedOnly: boolean
-  keywordRecommendedOnly: boolean
+  matchedOnly: boolean
   sortBy: 'crawl_time' | 'publish_time' | 'price' | 'keyword_hit_count'
   sortOrder: 'asc' | 'desc'
   isLoading: boolean
@@ -64,8 +63,7 @@ const isSelectDisabled = computed(() => !props.isReady || options.value.length =
 
 const emit = defineEmits<{
   (e: 'update:selectedFile', value: string): void
-  (e: 'update:aiRecommendedOnly', value: boolean): void
-  (e: 'update:keywordRecommendedOnly', value: boolean): void
+  (e: 'update:matchedOnly', value: boolean): void
   (e: 'update:sortBy', value: 'crawl_time' | 'publish_time' | 'price' | 'keyword_hit_count'): void
   (e: 'update:sortOrder', value: 'asc' | 'desc'): void
   (e: 'refresh'): void
@@ -73,18 +71,8 @@ const emit = defineEmits<{
   (e: 'delete'): void
 }>()
 
-function handleToggleAiRecommended(value: boolean) {
-  emit('update:aiRecommendedOnly', value)
-  if (value) {
-    emit('update:keywordRecommendedOnly', false)
-  }
-}
-
 function handleToggleKeywordRecommended(value: boolean) {
-  emit('update:keywordRecommendedOnly', value)
-  if (value) {
-    emit('update:aiRecommendedOnly', false)
-  }
+  emit('update:matchedOnly', value)
 }
 </script>
 
@@ -149,17 +137,8 @@ function handleToggleKeywordRecommended(value: boolean) {
       <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div class="flex items-center space-x-2">
           <Checkbox
-            id="ai-recommended-only"
-            :model-value="props.aiRecommendedOnly"
-            @update:modelValue="(value) => handleToggleAiRecommended(value === true)"
-          />
-          <Label for="ai-recommended-only" class="cursor-pointer">{{ t('results.filters.aiOnly') }}</Label>
-        </div>
-
-        <div class="flex items-center space-x-2">
-          <Checkbox
             id="keyword-recommended-only"
-            :model-value="props.keywordRecommendedOnly"
+            :model-value="props.matchedOnly"
             @update:modelValue="(value) => handleToggleKeywordRecommended(value === true)"
           />
           <Label for="keyword-recommended-only" class="cursor-pointer">{{ t('results.filters.keywordOnly') }}</Label>

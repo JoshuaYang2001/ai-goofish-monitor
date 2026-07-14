@@ -17,10 +17,6 @@ _SETTINGS_ENV_KEYS = [
     "PROXY_POOL",
     "PROXY_ROTATION_RETRY_LIMIT",
     "PROXY_BLACKLIST_TTL",
-    "OPENAI_API_KEY",
-    "OPENAI_BASE_URL",
-    "OPENAI_MODEL_NAME",
-    "SKIP_AI_ANALYSIS",
     "PROXY_URL",
     "NTFY_TOPIC_URL",
     "GOTIFY_URL",
@@ -321,34 +317,6 @@ def test_notification_test_endpoint_ignores_other_channel_dirty_fields(tmp_path,
     assert captured[0]["url"] == "https://ntfy.sh/demo-topic"
 
 
-def test_ai_settings_fall_back_to_runtime_environment_when_env_file_missing(tmp_path, monkeypatch):
-    _clear_settings_env(monkeypatch)
-    env_file = tmp_path / ".env"
-    monkeypatch.setattr(env_manager, "env_file", env_file)
-    monkeypatch.setenv("OPENAI_API_KEY", "runtime-key")
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://runtime.example.com/v1")
-    monkeypatch.setenv("OPENAI_MODEL_NAME", "runtime-model")
-    monkeypatch.setenv("PROXY_URL", "http://127.0.0.1:7890")
-    client = _build_settings_client()
-
-    ai_response = client.get("/api/settings/ai")
-    assert ai_response.status_code == 200
-    assert ai_response.json() == {
-        "OPENAI_BASE_URL": "https://runtime.example.com/v1",
-        "OPENAI_MODEL_NAME": "runtime-model",
-        "SKIP_AI_ANALYSIS": False,
-        "PROXY_URL": "http://127.0.0.1:7890",
-    }
-
-    status_response = client.get("/api/settings/status")
-    assert status_response.status_code == 200
-    env_payload = status_response.json()["env_file"]
-    assert env_payload["exists"] is False
-    assert env_payload["openai_api_key_set"] is True
-    assert env_payload["openai_base_url_set"] is True
-    assert env_payload["openai_model_name_set"] is True
-
-
 def test_notification_settings_fall_back_to_runtime_environment_when_env_file_missing(
     tmp_path, monkeypatch
 ):
@@ -373,67 +341,3 @@ def test_notification_settings_fall_back_to_runtime_environment_when_env_file_mi
     assert payload["BARK_URL_SET"] is True
     assert payload["TELEGRAM_BOT_TOKEN_SET"] is True
     assert sorted(payload["CONFIGURED_CHANNELS"]) == ["bark", "ntfy", "telegram"]
-
-
-def test_ai_test_endpoint_falls_back_to_responses_when_chat_completions_api_404(
-    tmp_path, monkeypatch
-):
-    _clear_settings_env(monkeypatch)
-    env_file = tmp_path / ".env"
-    env_file.write_text("", encoding="utf-8")
-    monkeypatch.setattr(env_manager, "env_file", env_file)
-    client = _build_settings_client()
-    request_history = []
-
-    class _FakeOpenAI:
-        def __init__(self, **_kwargs):
-            self.responses = type(
-                "_Responses",
-                (),
-                {"create": self._responses_create},
-            )()
-            self.chat = type(
-                "_Chat",
-                (),
-                {
-                    "completions": type(
-                        "_Completions",
-                        (),
-                        {"create": self._chat_create},
-                    )()
-                },
-            )()
-
-        def _responses_create(self, **kwargs):
-            request_history.append(("responses", kwargs))
-            return type(
-                "_Response",
-                (),
-                {"output_text": "OK"},
-            )()
-
-        def _chat_create(self, **kwargs):
-            request_history.append(("chat", kwargs))
-            raise Exception("Error code: 404 - page not found")
-
-    import openai
-
-    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
-
-    response = client.post(
-        "/api/settings/ai/test",
-        json={
-            "OPENAI_API_KEY": "demo",
-            "OPENAI_BASE_URL": "https://example.com/v1/",
-            "OPENAI_MODEL_NAME": "demo-model",
-        },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
-    assert payload["response"] == "OK"
-    assert request_history[0][0] == "chat"
-    assert request_history[0][1]["messages"][0]["content"] == settings.AI_TEST_PROMPT
-    assert request_history[1][0] == "responses"
-    assert request_history[1][1]["input"][0]["content"][0]["text"] == settings.AI_TEST_PROMPT

@@ -25,3 +25,22 @@ def test_resolve_browser_channel_uses_msedge_locally_when_requested(monkeypatch)
     scraper = _load_scraper(monkeypatch, login_is_edge=True, running_in_docker=False)
 
     assert scraper._resolve_browser_channel() == "msedge"
+
+
+def test_extra_headers_exclude_browser_managed_navigation_headers(monkeypatch):
+    scraper = _load_scraper(monkeypatch, login_is_edge=False, running_in_docker=False)
+
+    headers = scraper._build_extra_headers(
+        {
+            "Accept": "text/html",
+            "Accept-Encoding": "gzip",
+            "Accept-Language": "zh-CN",
+            "Referer": "https://www.goofish.com/item?id=1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "User-Agent": "captured-user-agent",
+            "X-Monitor-Trace": "tenant-safe-value",
+        }
+    )
+
+    assert headers == {"X-Monitor-Trace": "tenant-safe-value"}

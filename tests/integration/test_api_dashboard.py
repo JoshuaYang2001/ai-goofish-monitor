@@ -36,14 +36,14 @@ def test_dashboard_summary_aggregates_tasks_and_results(tmp_path, monkeypatch):
     first = TaskCreate(
       task_name="Apple Watch 任务",
       keyword="apple watch",
-      description="只关注价格合适且成色好的 Apple Watch。",
+      keyword_rules=["apple watch"],
       max_pages=3,
       personal_only=True,
     )
     second = TaskCreate(
       task_name="iPad 任务",
       keyword="ipad pro",
-      description="关注 2024 款 iPad Pro。",
+      keyword_rules=["ipad pro"],
       max_pages=2,
       personal_only=True,
     )
@@ -66,8 +66,8 @@ def test_dashboard_summary_aggregates_tasks_and_results(tmp_path, monkeypatch):
                 "商品链接": "https://www.goofish.com/item?id=watch-1",
                 "当前售价": "¥1800",
             },
-            "ai_analysis": {
-                "analysis_source": "ai",
+            "match_result": {
+                "analysis_source": "keyword",
                 "is_recommended": True,
                 "reason": "价格低于均价",
             },
@@ -82,7 +82,7 @@ def test_dashboard_summary_aggregates_tasks_and_results(tmp_path, monkeypatch):
                 "商品链接": "https://www.goofish.com/item?id=watch-2",
                 "当前售价": "¥2100",
             },
-            "ai_analysis": {
+            "match_result": {
                 "analysis_source": "keyword",
                 "is_recommended": False,
                 "reason": "未命中规则",
@@ -100,8 +100,7 @@ def test_dashboard_summary_aggregates_tasks_and_results(tmp_path, monkeypatch):
     assert payload["summary"]["result_files"] == 1
     assert payload["summary"]["scanned_items"] == 2
     assert payload["summary"]["recommended_items"] == 1
-    assert payload["summary"]["ai_recommended_items"] == 1
-    assert payload["summary"]["keyword_recommended_items"] == 0
+    assert payload["summary"]["rule_matched_items"] == 1
     assert payload["focus_file"] == "apple_watch_full_data.jsonl"
 
     watch_summary = next(
@@ -118,6 +117,6 @@ def test_dashboard_summary_aggregates_tasks_and_results(tmp_path, monkeypatch):
     assert ipad_summary["is_running"] is True
 
     statuses = {item["status"] for item in payload["recent_activities"]}
-    assert "AI 推荐" in statuses
+    assert "规则命中" in statuses
     assert "结果已更新" in statuses
     assert "运行中" in statuses

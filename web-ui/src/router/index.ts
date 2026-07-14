@@ -41,6 +41,12 @@ const routes = [
         meta: { titleKey: 'routes.results', requiresAuth: true },
       },
       {
+        path: 'changes',
+        name: 'MetricChanges',
+        component: () => import('@/views/MetricsChangesView.vue'),
+        meta: { titleKey: 'routes.changes', requiresAuth: true },
+      },
+      {
         path: 'logs',
         name: 'Logs',
         component: () => import('@/views/LogsView.vue'),

@@ -28,8 +28,7 @@ def _build_summary_metrics(tasks: list[Task], summary_list: list[dict[str, Any]]
         "result_files": sum(1 for item in summary_list if item.get("filename")),
         "scanned_items": sum(int(item["total_items"]) for item in summary_list),
         "recommended_items": sum(int(item["recommended_items"]) for item in summary_list),
-        "ai_recommended_items": sum(int(item["ai_recommended_items"]) for item in summary_list),
-        "keyword_recommended_items": sum(int(item["keyword_recommended_items"]) for item in summary_list),
+        "rule_matched_items": sum(int(item["rule_matched_items"]) for item in summary_list),
         "last_updated_at": serialize_timestamp(last_updated_at),
     }
 

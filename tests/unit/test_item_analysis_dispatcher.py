@@ -7,30 +7,18 @@ from src.services.item_analysis_dispatcher import (
 
 
 def test_item_analysis_dispatcher_uses_bounded_concurrency():
-    active_ai_calls = 0
-    max_active_ai_calls = 0
+    active_seller_calls = 0
+    max_active_seller_calls = 0
     saved_records = []
     notifications = []
 
     async def seller_loader(user_id: str):
-        await asyncio.sleep(0.005)
-        return {"卖家ID": user_id}
-
-    async def image_downloader(product_id: str, image_urls: list[str], task_name: str):
-        return []
-
-    async def ai_analyzer(record: dict, image_paths: list[str], prompt_text: str):
-        nonlocal active_ai_calls, max_active_ai_calls
-        active_ai_calls += 1
-        max_active_ai_calls = max(max_active_ai_calls, active_ai_calls)
+        nonlocal active_seller_calls, max_active_seller_calls
+        active_seller_calls += 1
+        max_active_seller_calls = max(max_active_seller_calls, active_seller_calls)
         await asyncio.sleep(0.03)
-        active_ai_calls -= 1
-        return {
-            "analysis_source": "ai",
-            "is_recommended": True,
-            "reason": f"推荐 {record['商品信息']['商品ID']}",
-            "keyword_hit_count": 0,
-        }
+        active_seller_calls -= 1
+        return {"卖家ID": user_id}
 
     async def notifier(item_data: dict, reason: str):
         notifications.append((item_data["商品ID"], reason))
@@ -42,10 +30,7 @@ def test_item_analysis_dispatcher_uses_bounded_concurrency():
     async def run():
         dispatcher = ItemAnalysisDispatcher(
             concurrency=2,
-            skip_ai_analysis=False,
             seller_loader=seller_loader,
-            image_downloader=image_downloader,
-            ai_analyzer=ai_analyzer,
             notifier=notifier,
             saver=saver,
         )
@@ -54,10 +39,7 @@ def test_item_analysis_dispatcher_uses_bounded_concurrency():
                 ItemAnalysisJob(
                     keyword="demo",
                     task_name="Demo",
-                    decision_mode="ai",
-                    analyze_images=False,
-                    prompt_text="prompt",
-                    keyword_rules=(),
+                    keyword_rules=(str(index),),
                     final_record={
                         "商品信息": {"商品ID": str(index), "商品图片列表": []},
                         "卖家信息": {},
@@ -74,7 +56,7 @@ def test_item_analysis_dispatcher_uses_bounded_concurrency():
     assert dispatcher.completed_count == 3
     assert len(saved_records) == 3
     assert len(notifications) == 3
-    assert max_active_ai_calls == 2
+    assert max_active_seller_calls == 2
     assert saved_records[0][1]["卖家信息"]["卖家ID"].startswith("seller-")
 
 
@@ -83,12 +65,6 @@ def test_item_analysis_dispatcher_supports_keyword_mode_without_ai():
 
     async def seller_loader(user_id: str):
         return {"卖家标签": "个人闲置"}
-
-    async def image_downloader(product_id: str, image_urls: list[str], task_name: str):
-        raise AssertionError("关键词模式不应下载图片")
-
-    async def ai_analyzer(record: dict, image_paths: list[str], prompt_text: str):
-        raise AssertionError("关键词模式不应调用 AI")
 
     async def notifier(item_data: dict, reason: str):
         return None
@@ -100,10 +76,7 @@ def test_item_analysis_dispatcher_supports_keyword_mode_without_ai():
     async def run():
         dispatcher = ItemAnalysisDispatcher(
             concurrency=1,
-            skip_ai_analysis=False,
             seller_loader=seller_loader,
-            image_downloader=image_downloader,
-            ai_analyzer=ai_analyzer,
             notifier=notifier,
             saver=saver,
         )
@@ -111,9 +84,6 @@ def test_item_analysis_dispatcher_supports_keyword_mode_without_ai():
             ItemAnalysisJob(
                 keyword="demo",
                 task_name="Demo",
-                decision_mode="keyword",
-                analyze_images=False,
-                prompt_text="",
                 keyword_rules=("个人闲置",),
                 final_record={
                     "商品信息": {"商品ID": "1", "商品标题": "演示商品"},
@@ -127,5 +97,5 @@ def test_item_analysis_dispatcher_supports_keyword_mode_without_ai():
         await dispatcher.join()
 
     asyncio.run(run())
-    assert saved_records[0]["ai_analysis"]["analysis_source"] == "keyword"
-    assert saved_records[0]["ai_analysis"]["is_recommended"] is True
+    assert saved_records[0]["match_result"]["analysis_source"] == "keyword"
+    assert saved_records[0]["match_result"]["is_recommended"] is True

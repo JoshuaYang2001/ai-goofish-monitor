@@ -52,14 +52,6 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // 自定义 AI 风格色
-        ai: {
-          primary: "#3b82f6",
-          success: "#10b981",
-          warning: "#f59e0b",
-          danger: "#ef4444",
-          dark: "#0f172a",
-        }
       },
       boxShadow: {
         'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)',

@@ -89,7 +89,7 @@ class NotificationService:
             "channel": client.channel_key,
             "label": client.display_name,
             "success": False,
-            "message": f"发送失败 (已重试{self.MAX_RETRIES}次): {last_error}",
+            "message": str(last_error),
         }
 
     async def _send_with_result(

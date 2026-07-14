@@ -9,18 +9,19 @@ import {
   Bell, 
   Search, 
   UserCircle,
-  HelpCircle,
   Menu
 } from 'lucide-vue-next'
 import Badge from '@/components/ui/badge/Badge.vue'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { useI18n } from 'vue-i18n'
+import { useAuth } from '@/composables/useAuth'
 
 const router = useRouter()
 const route = useRoute()
 const { toggleMobileNav } = useMobileNav()
 const inactiveSearchValue = ref('')
 const { t } = useI18n()
+const { username, tenantName, logout } = useAuth()
 
 const isDashboard = computed(() => route.name === 'Dashboard')
 
@@ -32,8 +33,8 @@ function goNotifications() {
   router.push({ name: 'Settings', query: { tab: 'notifications' } })
 }
 
-function goPrompts() {
-  router.push({ name: 'Settings', query: { tab: 'prompts' } })
+async function handleLogout() {
+  await logout()
 }
 </script>
 
@@ -91,15 +92,6 @@ function goPrompts() {
          >
             <Bell class="w-5 h-5" />
          </Button>
-         <Button
-           variant="ghost"
-           size="icon"
-           class="rounded-full text-slate-500 hover:text-primary hover:bg-primary/10"
-           :aria-label="t('header.openPrompts')"
-           @click="goPrompts"
-         >
-            <HelpCircle class="w-5 h-5" />
-         </Button>
       </div>
       
       <div class="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
@@ -114,9 +106,13 @@ function goPrompts() {
            <UserCircle class="w-6 h-6 text-slate-500" />
         </div>
         <div class="text-left hidden lg:block">
-           <p class="text-xs font-black text-slate-700 leading-none mb-0.5">Xianyu Admin</p>
-           <p class="text-[10px] text-slate-400 font-medium">{{ t('header.accountManagement') }}</p>
+           <p class="text-xs font-black text-slate-700 leading-none mb-0.5">{{ tenantName || '—' }}</p>
+           <p class="text-[10px] text-slate-400 font-medium">{{ username }}</p>
         </div>
+      </Button>
+
+      <Button variant="outline" size="sm" class="hidden lg:flex" @click="handleLogout">
+        退出
       </Button>
 
       <Button

@@ -8,11 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from src.api.routes import (
+    auth,
     dashboard,
     logs,
     login_state,
     metrics,
-    prompts,
     results,
     sellers,
     settings,
@@ -23,22 +23,23 @@ from src.api.routes import (
 from src.api.dependencies import (
     set_process_service,
     set_scheduler_service,
-    set_task_generation_service,
 )
 from src.services.task_service import TaskService
 from src.services.process_service import ProcessService
 from src.services.scheduler_service import SchedulerService
 from src.services.task_log_cleanup_service import cleanup_task_logs
-from src.services.task_generation_service import TaskGenerationService
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.infrastructure.config.settings import settings as app_settings
+from src.api.security import tenant_identity
+from src.services.auth_service import bootstrap_control_storage, list_tenants
+from src.tenancy import ensure_tenant_workspace, tenant_scope
+from fastapi import Depends
 
 
 # 全局服务实例
 process_service = ProcessService()
 scheduler_service = SchedulerService(process_service)
-task_generation_service = TaskGenerationService()
 
 
 async def _sync_task_runtime_status(task_id: int, is_running: bool) -> None:
@@ -61,7 +62,6 @@ process_service.set_lifecycle_hooks(
 # 设置全局 ProcessService 实例供依赖注入使用
 set_process_service(process_service)
 set_scheduler_service(scheduler_service)
-set_task_generation_service(task_generation_service)
 
 
 @asynccontextmanager
@@ -69,20 +69,25 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时
     print("正在启动应用...")
-    bootstrap_sqlite_storage()
-    cleanup_task_logs(keep_days=app_settings.task_log_retention_days)
-
-    # 重置所有任务状态为停止
-    task_repo = SqliteTaskRepository()
-    task_service = TaskService(task_repo)
-    tasks_list = await task_service.get_all_tasks()
-
-    for task in tasks_list:
-        if task.is_running:
-            await task_service.update_task_status(task.id, False)
-
-    # 加载定时任务
-    await scheduler_service.reload_jobs(tasks_list)
+    bootstrap_control_storage()
+    for tenant in list_tenants():
+        tenant_id = str(tenant["id"])
+        ensure_tenant_workspace(tenant_id)
+        with tenant_scope(tenant_id):
+            bootstrap_sqlite_storage()
+            cleanup_task_logs(keep_days=app_settings.task_log_retention_days)
+            task_repo = SqliteTaskRepository()
+            task_service = TaskService(task_repo)
+            tasks_list = await task_service.get_all_tasks()
+            for task in tasks_list:
+                if task.is_running:
+                    await task_service.update_task_status(task.id, False)
+            try:
+                await scheduler_service.reload_jobs(tasks_list, tenant_id=tenant_id)
+            except TypeError as exc:
+                if "tenant_id" not in str(exc):
+                    raise
+                await scheduler_service.reload_jobs(tasks_list)
     scheduler_service.start()
 
     print("应用启动完成")
@@ -98,24 +103,26 @@ async def lifespan(app: FastAPI):
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="闲鱼智能监控机器人",
-    description="基于AI的闲鱼商品监控系统",
+    title="闲鱼商品监控系统",
+    description="支持多租户隔离的闲鱼商品监控系统",
     version="2.0.0",
     lifespan=lifespan
 )
 
-# 注册路由
-app.include_router(tasks.router)
-app.include_router(dashboard.router)
-app.include_router(logs.router)
-app.include_router(settings.router)
-app.include_router(prompts.router)
-app.include_router(results.router)
-app.include_router(login_state.router)
+# 注册路由。业务 API 必须先通过认证依赖建立租户上下文。
+tenant_dependencies = [Depends(tenant_identity)]
+app.include_router(auth.router)
+app.include_router(auth.admin_router)
+app.include_router(tasks.router, dependencies=tenant_dependencies)
+app.include_router(dashboard.router, dependencies=tenant_dependencies)
+app.include_router(logs.router, dependencies=tenant_dependencies)
+app.include_router(settings.router, dependencies=tenant_dependencies)
+app.include_router(results.router, dependencies=tenant_dependencies)
+app.include_router(login_state.router, dependencies=tenant_dependencies)
+app.include_router(accounts.router, dependencies=tenant_dependencies)
+app.include_router(metrics.router, dependencies=tenant_dependencies)
+app.include_router(sellers.router, dependencies=tenant_dependencies)
 app.include_router(websocket.router)
-app.include_router(accounts.router)
-app.include_router(metrics.router)
-app.include_router(sellers.router)
 
 # 挂载静态文件
 # 旧的静态文件目录（用于截图等）
@@ -136,22 +143,9 @@ async def health_check():
 
 
 # 认证状态检查端点
-from fastapi import Request, HTTPException
+from fastapi import Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-@app.post("/auth/status")
-async def auth_status(payload: LoginRequest):
-    """检查认证状态"""
-    if payload.username == app_settings.web_username and payload.password == app_settings.web_password:
-        return {"authenticated": True, "username": payload.username}
-    raise HTTPException(status_code=401, detail="认证失败")
-
 
 # 主页路由 - 服务 Vue 3 SPA
 from fastapi.responses import JSONResponse
@@ -184,6 +178,10 @@ async def serve_spa(request: Request, full_path: str):
     Catch-all 路由，将所有非 API 请求重定向到 index.html
     这样可以支持 Vue Router 的 HTML5 History 模式
     """
+    # 未注册的 API 不能回退到 SPA，避免已移除接口看起来仍然可访问。
+    if full_path.startswith(("api/", "auth/", "ws/")):
+        return JSONResponse(status_code=404, content={"detail": "接口不存在"})
+
     # 如果请求的是静态资源（如 favicon.ico），返回 404
     if full_path.endswith(('.ico', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.css', '.js', '.json', '.webmanifest')):
         return JSONResponse(status_code=404, content={"error": "资源未找到"})

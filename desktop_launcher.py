@@ -22,8 +22,13 @@ def _prepare_environment() -> None:
 
 
 def run_app() -> None:
-    """启动 FastAPI 应用并自动打开浏览器"""
+    """连接 SaaS 服务；未配置远程地址时保留本地开发模式。"""
     _prepare_environment()
+
+    remote_url = os.getenv("DESKTOP_SERVER_URL", "").strip()
+    if remote_url:
+        webbrowser.open(remote_url.rstrip("/"))
+        return
 
     from src.app import app
     from src.infrastructure.config.settings import settings

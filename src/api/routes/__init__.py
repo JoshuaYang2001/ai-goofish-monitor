@@ -1,28 +1,5 @@
-"""API 路由模块"""
-from src.api.routes import (
-    accounts,
-    dashboard,
-    logs,
-    login_state,
-    metrics,
-    prompts,
-    results,
-    sellers,
-    settings,
-    tasks,
-    websocket,
-)
+"""API route package.
 
-__all__ = [
-    "accounts",
-    "dashboard",
-    "logs",
-    "login_state",
-    "metrics",
-    "prompts",
-    "results",
-    "sellers",
-    "settings",
-    "tasks",
-    "websocket",
-]
+Route modules are intentionally imported lazily to avoid dependency cycles between
+service objects and FastAPI dependency providers.
+"""

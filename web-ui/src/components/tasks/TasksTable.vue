@@ -19,8 +19,8 @@ import {
   Pencil,
   Trash2,
   User,
-  BrainCircuit,
   Keyboard,
+  Hash,
   Clock,
   Layers,
   MapPin,
@@ -40,7 +40,7 @@ interface Props {
 const props = defineProps<Props>()
 const { t } = useI18n()
 const isStopping = (id: number) => props.stoppingIds?.has(id) ?? false
-const isKeywordMode = (task: Task) => task.decision_mode === 'keyword'
+const isItemIdTask = (task: Task) => task.task_type === 'item_id'
 const nowMs = ref(Date.now())
 let timer: number | null = null
 
@@ -93,7 +93,6 @@ const emit = defineEmits<{
   (e: 'pause-task', taskId: number): void
   (e: 'resume-task', taskId: number): void
   (e: 'edit-task', task: Task): void
-  (e: 'refresh-criteria', task: Task): void
   (e: 'toggle-enabled', task: Task, enabled: boolean): void
 }>()
 </script>
@@ -164,20 +163,18 @@ const emit = defineEmits<{
                     variant="outline" 
                     :class="[
                       'h-4 px-1.5 text-[9px] font-black border-none tracking-tighter', 
-                      isKeywordMode(task) ? 'bg-blue-50 text-blue-500' : 'bg-emerald-50 text-emerald-600'
+                      isItemIdTask(task) ? 'bg-violet-50 text-violet-600' : 'bg-blue-50 text-blue-500'
                     ]"
                   >
-                    <component :is="isKeywordMode(task) ? Keyboard : BrainCircuit" class="w-2.5 h-2.5 mr-1" />
-                    {{ isKeywordMode(task) ? 'KEYWORD' : 'AI ENGINE' }}
+                    <component :is="isItemIdTask(task) ? Hash : Keyboard" class="w-2.5 h-2.5 mr-1" />
+                    {{ isItemIdTask(task) ? 'ID DIRECT' : 'KEYWORD' }}
                   </Badge>
                 </div>
                 
                 <div class="flex items-center gap-2">
                    <div class="flex items-center gap-1.5 bg-slate-100/80 text-slate-600 px-2 py-0.5 rounded-md text-[11px] font-bold border border-slate-200/50">
-                      <Search class="w-3 h-3 text-slate-400" /> {{ task.keyword }}
-                   </div>
-                   <div v-if="task.description" class="text-[11px] text-slate-400 italic line-clamp-1 max-w-[180px]" :title="task.description">
-                      {{ task.description }}
+                      <Search class="w-3 h-3 text-slate-400" />
+                      {{ isItemIdTask(task) ? `${task.item_id_list?.length || 0} 个商品 ID` : task.keyword }}
                    </div>
                 </div>
 
@@ -216,28 +213,16 @@ const emit = defineEmits<{
               </div>
             </TableCell>
 
-            <!-- Column 4: AI/Keyword Mode Details -->
+            <!-- Column 4: Matching Details -->
             <TableCell class="align-middle text-center">
               <div class="inline-flex flex-col items-center gap-2">
-                <div v-if="isKeywordMode(task)" class="bg-blue-50/30 p-2 rounded-xl border border-blue-100/50">
+                <div v-if="!isItemIdTask(task)" class="bg-blue-50/30 p-2 rounded-xl border border-blue-100/50">
                   <div class="text-xs font-black text-blue-600">{{ t('tasks.table.keywordStrategies', { count: task.keyword_rules?.length || 0 }) }}</div>
                   <div class="text-[9px] font-bold text-blue-400/70 uppercase mt-0.5 tracking-tighter">OR Logic</div>
                 </div>
-                <div v-else class="flex flex-col items-center gap-1.5">
-                  <div 
-                    class="px-2 py-1 rounded bg-emerald-50/50 border border-emerald-100/50 text-[9px] font-mono font-black text-emerald-600 truncate max-w-[140px]"
-                    :title="task.ai_prompt_criteria_file"
-                  >
-                    {{ (task.ai_prompt_criteria_file || 'STANDARD').split('/').pop() }}
-                  </div>
-                  <Button 
-                    size="sm" 
-                    variant="ghost" 
-                    class="h-6 text-[9px] font-black text-emerald-600 hover:bg-emerald-50 uppercase tracking-widest px-2" 
-                    @click="emit('refresh-criteria', task)"
-                  >
-                    <RefreshCcw class="w-2.5 h-2.5 mr-1" /> {{ t('tasks.table.refreshCriteria') }}
-                  </Button>
+                <div v-else class="rounded-xl border border-violet-100/70 bg-violet-50/40 p-2">
+                  <div class="text-xs font-black text-violet-600">{{ task.item_id_list?.length || 0 }} 个指定商品</div>
+                  <div class="mt-0.5 text-[9px] font-bold uppercase tracking-tighter text-violet-400/80">Direct Monitor</div>
                 </div>
               </div>
             </TableCell>

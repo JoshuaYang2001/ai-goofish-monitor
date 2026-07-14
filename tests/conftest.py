@@ -18,7 +18,6 @@ from src.api import dependencies as deps
 from src.api.routes import tasks
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.services.task_service import TaskService
-from src.services.task_generation_service import TaskGenerationService
 
 
 @pytest.fixture()
@@ -40,17 +39,12 @@ def sample_task_payload():
         "task_name": "Sony A7M4",
         "enabled": True,
         "keyword": "sony a7m4",
-        "description": "Good condition body with accessories",
-        "analyze_images": True,
         "max_pages": 2,
         "personal_only": True,
         "min_price": "8000",
         "max_price": "16000",
         "cron": "*/15 * * * *",
-        "ai_prompt_base_file": "prompts/base_prompt.txt",
-        "ai_prompt_criteria_file": "prompts/sony_a7m4_criteria.txt",
-        "decision_mode": "ai",
-        "keyword_rules": [],
+        "keyword_rules": ["sony a7m4"],
     }
 
 
@@ -112,7 +106,6 @@ def api_context(tmp_path):
     task_service = TaskService(repository)
     process_service = FakeProcessService()
     scheduler_service = FakeSchedulerService()
-    task_generation_service = TaskGenerationService()
 
     app = FastAPI()
     app.include_router(tasks.router)
@@ -125,9 +118,6 @@ def api_context(tmp_path):
 
     def override_get_scheduler_service():
         return scheduler_service
-
-    def override_get_task_generation_service():
-        return task_generation_service
 
     async def mark_started(task_id: int):
         await task_service.update_task_status(task_id, True)
@@ -142,7 +132,6 @@ def api_context(tmp_path):
     app.dependency_overrides[deps.get_task_service] = override_get_task_service
     app.dependency_overrides[deps.get_process_service] = override_get_process_service
     app.dependency_overrides[deps.get_scheduler_service] = override_get_scheduler_service
-    app.dependency_overrides[deps.get_task_generation_service] = override_get_task_generation_service
 
     return {
         "app": app,
@@ -150,7 +139,6 @@ def api_context(tmp_path):
         "db_path": db_path,
         "process_service": process_service,
         "scheduler_service": scheduler_service,
-        "task_generation_service": task_generation_service,
     }
 
 

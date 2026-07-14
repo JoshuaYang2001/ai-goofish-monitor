@@ -23,7 +23,7 @@ def test_results_filter_and_sort_for_keyword_recommendations(tmp_path, monkeypat
         {
             "爬取时间": "2026-01-01T01:00:00",
             "商品信息": {"当前售价": "¥1000", "发布时间": "2026-01-01 10:00"},
-            "ai_analysis": {
+            "match_result": {
                 "analysis_source": "keyword",
                 "is_recommended": True,
                 "keyword_hit_count": 3,
@@ -33,7 +33,7 @@ def test_results_filter_and_sort_for_keyword_recommendations(tmp_path, monkeypat
         {
             "爬取时间": "2026-01-01T02:00:00",
             "商品信息": {"当前售价": "¥2000", "发布时间": "2026-01-01 11:00"},
-            "ai_analysis": {
+            "match_result": {
                 "analysis_source": "keyword",
                 "is_recommended": True,
                 "keyword_hit_count": 1,
@@ -43,10 +43,10 @@ def test_results_filter_and_sort_for_keyword_recommendations(tmp_path, monkeypat
         {
             "爬取时间": "2026-01-01T03:00:00",
             "商品信息": {"当前售价": "¥3000", "发布时间": "2026-01-01 12:00"},
-            "ai_analysis": {
-                "analysis_source": "ai",
+            "match_result": {
+                "analysis_source": "keyword",
                 "is_recommended": True,
-                "reason": "AI推荐",
+                "reason": "规则命中",
             },
         },
     ]
@@ -58,28 +58,22 @@ def test_results_filter_and_sort_for_keyword_recommendations(tmp_path, monkeypat
 
     resp = client.get(
         "/api/results/demo_full_data.jsonl",
-        params={"keyword_recommended_only": True, "sort_by": "keyword_hit_count", "sort_order": "desc"},
+        params={"matched_only": True, "sort_by": "keyword_hit_count", "sort_order": "desc"},
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["total_items"] == 2
-    assert data["items"][0]["ai_analysis"]["keyword_hit_count"] == 3
-    assert data["items"][1]["ai_analysis"]["keyword_hit_count"] == 1
+    assert data["total_items"] == 3
+    assert data["items"][0]["match_result"]["keyword_hit_count"] == 3
+    assert data["items"][1]["match_result"]["keyword_hit_count"] == 1
 
     resp = client.get(
         "/api/results/demo_full_data.jsonl",
-        params={"ai_recommended_only": True},
+        params={"matched_only": False},
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["total_items"] == 1
-    assert data["items"][0]["ai_analysis"]["analysis_source"] == "ai"
-
-    resp = client.get(
-        "/api/results/demo_full_data.jsonl",
-        params={"ai_recommended_only": True, "keyword_recommended_only": True},
-    )
-    assert resp.status_code == 400
+    assert data["total_items"] == 3
+    assert all("match_result" in item for item in data["items"])
 
 
 def test_results_insights_and_export_csv(tmp_path, monkeypatch):
@@ -101,8 +95,8 @@ def test_results_insights_and_export_csv(tmp_path, monkeypatch):
                 "发布时间": "2026-01-02 08:30",
             },
             "卖家信息": {"卖家昵称": "卖家A"},
-            "ai_analysis": {
-                "analysis_source": "ai",
+            "match_result": {
+                "analysis_source": "keyword",
                 "is_recommended": True,
                 "reason": "价格低于近期均价",
             },
@@ -119,7 +113,7 @@ def test_results_insights_and_export_csv(tmp_path, monkeypatch):
                 "发布时间": "2026-01-02 08:45",
             },
             "卖家信息": {"卖家昵称": "卖家B"},
-            "ai_analysis": {
+            "match_result": {
                 "analysis_source": "keyword",
                 "is_recommended": False,
                 "reason": "未命中",
@@ -217,8 +211,8 @@ def test_results_export_csv_supports_unicode_filename(tmp_path, monkeypatch):
                 "发布时间": "2026-01-02 08:30",
             },
             "卖家信息": {"卖家昵称": "卖家A"},
-            "ai_analysis": {
-                "analysis_source": "ai",
+            "match_result": {
+                "analysis_source": "keyword",
                 "is_recommended": True,
                 "reason": "价格合理",
             },

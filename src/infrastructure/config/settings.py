@@ -38,22 +38,6 @@ else:
             protected_namespaces = ()
 
 
-class AISettings(_EnvSettings):
-    """AI模型配置"""
-    api_key: Optional[str] = _env_field(None, "OPENAI_API_KEY")
-    base_url: str = _env_field("", "OPENAI_BASE_URL")
-    model_name: str = _env_field("", "OPENAI_MODEL_NAME")
-    proxy_url: Optional[str] = _env_field(None, "PROXY_URL")
-    debug_mode: bool = _env_field(False, "AI_DEBUG_MODE")
-    enable_response_format: bool = _env_field(True, "ENABLE_RESPONSE_FORMAT")
-    enable_thinking: bool = _env_field(False, "ENABLE_THINKING")
-    skip_analysis: bool = _env_field(False, "SKIP_AI_ANALYSIS")
-
-    def is_configured(self) -> bool:
-        """检查AI是否已正确配置"""
-        return bool(self.base_url and self.model_name)
-
-
 class NotificationSettings(_EnvSettings):
     """通知服务配置"""
     ntfy_topic_url: Optional[str] = _env_field(None, "NTFY_TOPIC_URL")
@@ -85,7 +69,8 @@ class NotificationSettings(_EnvSettings):
             self.gotify_url and self.gotify_token,
             self.bark_url,
             self.telegram_bot_token and self.telegram_chat_id,
-            self.webhook_url
+            self.webhook_url,
+            self.feishu_webhook_url,
         ])
 
 
@@ -128,20 +113,18 @@ def get_settings() -> AppSettings:
 
 def reload_settings() -> None:
     """重新加载全局配置实例"""
-    global _settings_instance, settings, ai_settings, notification_settings, scraper_settings
+    global _settings_instance, settings, notification_settings, scraper_settings
     from dotenv import load_dotenv
     from src.infrastructure.config.env_manager import env_manager
 
     load_dotenv(dotenv_path=env_manager.env_file, override=True)
     _settings_instance = None
     settings = get_settings()
-    ai_settings = AISettings()
     notification_settings = NotificationSettings()
     scraper_settings = ScraperSettings()
 
 
 # 导出便捷访问的配置实例
 settings = get_settings()
-ai_settings = AISettings()
 notification_settings = NotificationSettings()
 scraper_settings = ScraperSettings()

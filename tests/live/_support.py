@@ -43,9 +43,7 @@ class LiveTestSettings:
     expect_min_items: int
     debug_limit: int
     timeout_seconds: int
-    enable_task_generation: bool
     account_source_path: Path
-    ai_test_payload: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -55,13 +53,6 @@ class LiveServer:
     server_log_path: Path
     account_state_file: Path
     settings: LiveTestSettings
-
-
-def env_flag(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def env_int(name: str, default: int) -> int:
@@ -85,20 +76,6 @@ def load_runtime_env(repo_root: Path) -> dict[str, str]:
     return file_values
 
 
-def build_ai_test_payload(runtime_env: dict[str, str]) -> dict[str, str]:
-    payload = {
-        "OPENAI_BASE_URL": runtime_env.get("OPENAI_BASE_URL", ""),
-        "OPENAI_MODEL_NAME": runtime_env.get("OPENAI_MODEL_NAME", ""),
-    }
-    api_key = runtime_env.get("OPENAI_API_KEY")
-    if api_key:
-        payload["OPENAI_API_KEY"] = api_key
-    proxy_url = runtime_env.get("PROXY_URL")
-    if proxy_url:
-        payload["PROXY_URL"] = proxy_url
-    return payload
-
-
 def resolve_account_source(repo_root: Path) -> Path:
     configured = os.getenv("LIVE_TEST_ACCOUNT_STATE_FILE")
     if configured:
@@ -113,7 +90,6 @@ def resolve_account_source(repo_root: Path) -> Path:
 
 
 def load_live_settings(repo_root: Path) -> LiveTestSettings:
-    runtime_env = load_runtime_env(repo_root)
     return LiveTestSettings(
         repo_root=repo_root,
         keyword=os.getenv("LIVE_TEST_KEYWORD", DEFAULT_LIVE_KEYWORD).strip(),
@@ -121,9 +97,7 @@ def load_live_settings(repo_root: Path) -> LiveTestSettings:
         expect_min_items=env_int("LIVE_EXPECT_MIN_ITEMS", DEFAULT_EXPECT_MIN_ITEMS),
         debug_limit=env_int("LIVE_TEST_DEBUG_LIMIT", DEFAULT_LIVE_DEBUG_LIMIT),
         timeout_seconds=env_int("LIVE_TIMEOUT_SECONDS", DEFAULT_LIVE_TIMEOUT_SECONDS),
-        enable_task_generation=env_flag("LIVE_ENABLE_TASK_GENERATION"),
         account_source_path=resolve_account_source(repo_root),
-        ai_test_payload=build_ai_test_payload(runtime_env),
     )
 
 
@@ -142,7 +116,6 @@ def mirror_path(source: Path, destination: Path) -> None:
 def prepare_workspace(workspace: Path, settings: LiveTestSettings) -> Path:
     for name in ("src", "spider_v2.py", "static", "dist"):
         mirror_path(settings.repo_root / name, workspace / name)
-    shutil.copytree(settings.repo_root / "prompts", workspace / "prompts", dirs_exist_ok=True)
     state_dir = workspace / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     account_target = state_dir / settings.account_source_path.name
@@ -163,8 +136,6 @@ def build_server_env(workspace: Path, repo_root: Path, port: int) -> dict[str, s
             "APP_DATABASE_FILE": str(workspace / "data" / "live.sqlite3"),
             "ACCOUNT_STATE_DIR": str(workspace / "state"),
             "RUN_HEADLESS": "true",
-            "SKIP_AI_ANALYSIS": "false",
-            "AI_DEBUG_MODE": "true",
             "PYTHONUNBUFFERED": "1",
             "SERVER_PORT": str(port),
             "SPIDER_DEBUG_LIMIT": debug_limit,

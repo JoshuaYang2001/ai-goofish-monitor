@@ -65,7 +65,7 @@ tests/
 1. 新增测试放在 `tests/integration/` 或 `tests/unit/`
 2. 文件名以 `test_` 开头，函数名以 `test_` 开头
 3. 测试采用同步执行（不依赖 pytest-asyncio）
-4. 外部依赖（Playwright/AI/通知/网络）统一 mock
+4. 外部依赖（Playwright/通知/网络）统一 mock
 5. 使用 `tests/fixtures/` 的样例数据，避免依赖真实网络
 
 ## 注意事项
@@ -91,13 +91,11 @@ pytest tests/live -m live -v
 
 ```bash
 ./run_live_smoke.sh
-./run_live_smoke.sh --without-generation
 ```
 
 - 可选环境变量：
   - `LIVE_TEST_TASK_NAME`
   - `LIVE_EXPECT_MIN_ITEMS`（默认 `1`）
-  - `LIVE_TEST_DEBUG_LIMIT`（默认 `1`，只抓取/分析前 N 个新商品）
+  - `LIVE_TEST_DEBUG_LIMIT`（默认 `1`，只抓取/处理前 N 个新商品）
   - `LIVE_TIMEOUT_SECONDS`（默认 `180`）
-  - `LIVE_ENABLE_TASK_GENERATION`（脚本默认 `1`；设为 `0` 或使用 `--without-generation` 可关闭真实 AI 任务生成慢用例）
 - live 套件会在临时工作目录中启动真实 `uvicorn`，并清空通知相关 env，避免污染仓库根目录或向真实通知通道发消息。

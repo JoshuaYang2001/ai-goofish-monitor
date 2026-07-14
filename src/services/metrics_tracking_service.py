@@ -3,8 +3,8 @@
 负责记录和追踪商品价格/想要数变化
 """
 import json
-from datetime import datetime
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 from src.infrastructure.persistence.sqlite_connection import sqlite_connection
 
 
@@ -240,6 +240,144 @@ class MetricsTrackingService:
                     "snapshot_time": row["snapshot_time"],
                 }
             return None
+
+    def get_change_overview(
+        self,
+        interval_hours: List[int],
+        *,
+        task_name: Optional[str] = None,
+        search: Optional[str] = None,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """按时间窗口汇总每个商品的价格和想要数变化。"""
+        intervals = sorted({int(hours) for hours in interval_hours})
+        if not intervals or any(hours < 1 or hours > 720 for hours in intervals):
+            raise ValueError("时间间隔必须在 1 到 720 小时之间")
+        if len(intervals) > 8:
+            raise ValueError("最多同时查询 8 个时间间隔")
+
+        current_time = now or datetime.now()
+        normalized_search = (search or "").strip().lower()
+
+        with sqlite_connection() as conn:
+            metric_rows = conn.execute(
+                """
+                SELECT item_id, title, snapshot_time, price, price_display,
+                       want_count, browse_count, seller_id, link
+                FROM item_metrics_history
+                ORDER BY item_id ASC, snapshot_time ASC
+                """
+            ).fetchall()
+
+            task_rows = conn.execute(
+                """
+                SELECT item_id, task_name
+                FROM price_snapshots
+                WHERE id IN (
+                    SELECT MAX(id) FROM price_snapshots GROUP BY item_id
+                )
+                """
+            ).fetchall()
+
+        task_by_item = {str(row["item_id"]): str(row["task_name"] or "") for row in task_rows}
+        histories: Dict[str, List[Dict[str, Any]]] = {}
+        for row in metric_rows:
+            item_id = str(row["item_id"])
+            histories.setdefault(item_id, []).append(dict(row))
+
+        summaries: Dict[str, Dict[str, Any]] = {
+            str(hours): {
+                "hours": hours,
+                "want_change": 0,
+                "price_change": 0.0,
+                "want_changed_items": 0,
+                "price_changed_items": 0,
+            }
+            for hours in intervals
+        }
+        items: List[Dict[str, Any]] = []
+
+        for item_id, history in histories.items():
+            latest = history[-1]
+            item_task_name = task_by_item.get(item_id, "")
+            if task_name and item_task_name != task_name:
+                continue
+            if normalized_search and normalized_search not in " ".join(
+                [item_id, str(latest.get("title") or ""), item_task_name]
+            ).lower():
+                continue
+
+            changes: Dict[str, Dict[str, Any]] = {}
+            for hours in intervals:
+                cutoff = current_time - timedelta(hours=hours)
+                baseline = history[0]
+                for snapshot in history:
+                    snapshot_time = datetime.fromisoformat(str(snapshot["snapshot_time"]))
+                    if snapshot_time <= cutoff:
+                        baseline = snapshot
+                    else:
+                        break
+
+                current_price = latest.get("price")
+                baseline_price = baseline.get("price")
+                price_change = (
+                    round(float(current_price) - float(baseline_price), 2)
+                    if current_price is not None and baseline_price is not None
+                    else None
+                )
+                current_want = latest.get("want_count")
+                baseline_want = baseline.get("want_count")
+                want_change = (
+                    int(current_want) - int(baseline_want)
+                    if current_want is not None and baseline_want is not None
+                    else None
+                )
+
+                interval_key = str(hours)
+                changes[interval_key] = {
+                    "hours": hours,
+                    "baseline_time": baseline["snapshot_time"],
+                    "baseline_price": baseline_price,
+                    "baseline_want_count": baseline_want,
+                    "price_change": price_change,
+                    "want_change": want_change,
+                }
+                if price_change is not None:
+                    summaries[interval_key]["price_change"] += price_change
+                    if price_change != 0:
+                        summaries[interval_key]["price_changed_items"] += 1
+                if want_change is not None:
+                    summaries[interval_key]["want_change"] += want_change
+                    if want_change != 0:
+                        summaries[interval_key]["want_changed_items"] += 1
+
+            items.append(
+                {
+                    "item_id": item_id,
+                    "task_name": item_task_name,
+                    "title": latest.get("title"),
+                    "link": latest.get("link"),
+                    "seller_id": latest.get("seller_id"),
+                    "snapshot_time": latest.get("snapshot_time"),
+                    "price": latest.get("price"),
+                    "price_display": latest.get("price_display"),
+                    "want_count": latest.get("want_count"),
+                    "browse_count": latest.get("browse_count"),
+                    "changes": changes,
+                }
+            )
+
+        for summary in summaries.values():
+            summary["price_change"] = round(float(summary["price_change"]), 2)
+            summary["tracked_items"] = len(items)
+
+        return {
+            "generated_at": current_time.isoformat(),
+            "interval_hours": intervals,
+            "task_names": sorted({item["task_name"] for item in items if item["task_name"]}),
+            "summaries": summaries,
+            "items": items,
+        }
 
     def get_total_want_count_for_task(self, task_name: str) -> Optional[int]:
         """获取任务下所有商品的当前总想要数"""

@@ -68,25 +68,25 @@ class NotificationClient(ABC):
             mobile_link = convert_goofish_link(desktop_link)
 
         content_lines = [
-            f"价格：{price}",
+            f"价格: {price}",
         ]
         # 卖家昵称
         seller_nickname = product_data.get('卖家昵称')
         if seller_nickname:
-            content_lines.insert(0, f"卖家：{seller_nickname}")
+            content_lines.insert(0, f"卖家: {seller_nickname}")
         if want_count:
-            content_lines.append(f"想要数：{want_count}")
+            content_lines.append(f"想要数: {want_count}")
         if price_change:
-            content_lines.append(f"价格变化：{price_change}")
+            content_lines.append(f"价格变化: {price_change}")
         if want_count_change:
-            content_lines.append(f"想要数变化：{want_count_change}")
+            content_lines.append(f"想要数变化: {want_count_change}")
         # 添加当前时间
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        content_lines.append(f"时间：{now}")
+        content_lines.append(f"时间: {now}")
 
         short_title = title[:30]
         suffix = "..." if len(title) > 30 else ""
-        notification_title = f"🚨 新推荐！{short_title}{suffix}"
+        notification_title = f"🚨 新推荐! {short_title}{suffix}"
 
         main_image = product_data.get('商品主图链接')
         if not main_image:

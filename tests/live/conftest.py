@@ -27,7 +27,7 @@ def pytest_collection_modifyitems(config, items):
         return
     skip_marker = pytest.mark.skip(reason=LIVE_SKIP_REASON)
     for item in items:
-        if "live" not in item.keywords and "live_slow" not in item.keywords:
+        if "live" not in item.keywords:
             continue
         item.add_marker(skip_marker)
 
@@ -40,10 +40,6 @@ def live_settings():
     settings = load_live_settings(repo_root)
     if not settings.account_source_path.exists():
         pytest.fail(f"live 登录态文件不存在: {settings.account_source_path}")
-    if not settings.ai_test_payload.get("OPENAI_BASE_URL") or not settings.ai_test_payload.get(
-        "OPENAI_MODEL_NAME"
-    ):
-        pytest.fail("live 测试需要 OPENAI_BASE_URL 与 OPENAI_MODEL_NAME。")
     return settings
 
 

@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from src.config import AI_DEBUG_MODE
+from src.config import DEBUG_MODE
 from src.utils import safe_get
 
 
@@ -12,7 +12,7 @@ async def _parse_search_results_json(json_data: dict, source: str) -> list:
         items = await safe_get(json_data, "data", "resultList", default=[])
         if not items:
             print(f"LOG: ({source}) API响应中未找到商品列表 (resultList)。")
-            if AI_DEBUG_MODE:
+            if DEBUG_MODE:
                 print(f"--- [SEARCH DEBUG] RAW JSON RESPONSE from {source} ---")
                 print(json.dumps(json_data, ensure_ascii=False, indent=2))
                 print("----------------------------------------------------")

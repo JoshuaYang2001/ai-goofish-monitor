@@ -25,8 +25,15 @@ def _get_link_unique_key(link: str) -> str:
     return link.split("&", 1)[0]
 
 
+def _get_item_id(item: dict) -> str:
+    """兼容关键词模式与商品 ID 模式使用的历史字段名。"""
+    return str(
+        item.get("商品 ID") or item.get("商品ID") or item.get("item_id") or ""
+    ).strip()
+
+
 def _fallback_unique_key(record: dict, item: dict) -> str:
-    item_id = str(item.get("商品ID") or "").strip()
+    item_id = _get_item_id(item)
     if item_id:
         return f"item:{item_id}"
     digest = hashlib.sha1(
@@ -42,19 +49,12 @@ def _parse_raw_record(raw_json: str) -> dict:
 def _build_query_conditions(
     *,
     filename: str,
-    ai_recommended_only: bool,
-    keyword_recommended_only: bool,
+    matched_only: bool,
 ) -> tuple[str, list]:
     conditions = ["result_filename = ?"]
     params: list = [filename]
-    if ai_recommended_only:
+    if matched_only:
         conditions.append("is_recommended = 1")
-        conditions.append("analysis_source = ?")
-        params.append("ai")
-    if keyword_recommended_only:
-        conditions.append("is_recommended = 1")
-        conditions.append("analysis_source = ?")
-        params.append("keyword")
     return " AND ".join(conditions), params
 
 
@@ -71,7 +71,7 @@ async def save_result_record(record: dict, keyword: str) -> bool:
 def _save_result_record_sync(record: dict, keyword: str) -> bool:
     bootstrap_sqlite_storage()
     item = record.get("商品信息", {}) or {}
-    analysis = record.get("ai_analysis", {}) or {}
+    analysis = record.get("match_result", {}) or {}
     link = str(item.get("商品链接") or "")
     link_unique_key = _get_link_unique_key(link) if link else _fallback_unique_key(record, item)
     keyword_hit_count = analysis.get("keyword_hit_count", 0)
@@ -97,7 +97,7 @@ def _save_result_record_sync(record: dict, keyword: str) -> bool:
                 item.get("发布时间"),
                 parse_price_value(item.get("当前售价")),
                 item.get("当前售价"),
-                item.get("商品ID"),
+                _get_item_id(item),
                 item.get("商品标题"),
                 link,
                 link_unique_key,
@@ -173,8 +173,7 @@ def _delete_result_file_records_sync(filename: str) -> int:
 async def query_result_records(
     filename: str,
     *,
-    ai_recommended_only: bool,
-    keyword_recommended_only: bool,
+    matched_only: bool,
     sort_by: str,
     sort_order: str,
     page: int,
@@ -183,8 +182,7 @@ async def query_result_records(
     return await asyncio.to_thread(
         _query_result_records_sync,
         filename,
-        ai_recommended_only,
-        keyword_recommended_only,
+        matched_only,
         sort_by,
         sort_order,
         page,
@@ -194,8 +192,7 @@ async def query_result_records(
 
 def _query_result_records_sync(
     filename: str,
-    ai_recommended_only: bool,
-    keyword_recommended_only: bool,
+    matched_only: bool,
     sort_by: str,
     sort_order: str,
     page: int,
@@ -204,8 +201,7 @@ def _query_result_records_sync(
     bootstrap_sqlite_storage()
     where_clause, params = _build_query_conditions(
         filename=filename,
-        ai_recommended_only=ai_recommended_only,
-        keyword_recommended_only=keyword_recommended_only,
+        matched_only=matched_only,
     )
     offset = max(page - 1, 0) * limit
     order_clause = _sort_expression(sort_by, sort_order)
@@ -231,16 +227,14 @@ def _query_result_records_sync(
 async def load_all_result_records(
     filename: str,
     *,
-    ai_recommended_only: bool,
-    keyword_recommended_only: bool,
+    matched_only: bool,
     sort_by: str,
     sort_order: str,
 ) -> list[dict]:
     return await asyncio.to_thread(
         _load_all_result_records_sync,
         filename,
-        ai_recommended_only,
-        keyword_recommended_only,
+        matched_only,
         sort_by,
         sort_order,
     )
@@ -248,16 +242,14 @@ async def load_all_result_records(
 
 def _load_all_result_records_sync(
     filename: str,
-    ai_recommended_only: bool,
-    keyword_recommended_only: bool,
+    matched_only: bool,
     sort_by: str,
     sort_order: str,
 ) -> list[dict]:
     bootstrap_sqlite_storage()
     where_clause, params = _build_query_conditions(
         filename=filename,
-        ai_recommended_only=ai_recommended_only,
-        keyword_recommended_only=keyword_recommended_only,
+        matched_only=matched_only,
     )
     order_clause = _sort_expression(sort_by, sort_order)
     with sqlite_connection() as conn:
@@ -276,8 +268,7 @@ def _load_all_result_records_sync(
 async def build_result_ndjson(filename: str) -> str:
     records = await load_all_result_records(
         filename,
-        ai_recommended_only=False,
-        keyword_recommended_only=False,
+        matched_only=False,
         sort_by="crawl_time",
         sort_order="asc",
     )
@@ -296,8 +287,7 @@ def _load_result_summary_sync(filename: str) -> dict | None:
             SELECT
                 COUNT(1) AS total_items,
                 SUM(CASE WHEN is_recommended = 1 THEN 1 ELSE 0 END) AS recommended_items,
-                SUM(CASE WHEN is_recommended = 1 AND analysis_source = 'ai' THEN 1 ELSE 0 END) AS ai_recommended_items,
-                SUM(CASE WHEN is_recommended = 1 AND analysis_source = 'keyword' THEN 1 ELSE 0 END) AS keyword_recommended_items,
+                SUM(CASE WHEN is_recommended = 1 THEN 1 ELSE 0 END) AS rule_matched_items,
                 MAX(crawl_time) AS latest_crawl_time
             FROM result_items
             WHERE result_filename = ?
@@ -328,8 +318,7 @@ def _load_result_summary_sync(filename: str) -> dict | None:
     return {
         "total_items": int(aggregate_row["total_items"] or 0),
         "recommended_items": int(aggregate_row["recommended_items"] or 0),
-        "ai_recommended_items": int(aggregate_row["ai_recommended_items"] or 0),
-        "keyword_recommended_items": int(aggregate_row["keyword_recommended_items"] or 0),
+        "rule_matched_items": int(aggregate_row["rule_matched_items"] or 0),
         "latest_crawl_time": aggregate_row["latest_crawl_time"],
         "latest_record": (
             _parse_raw_record(str(latest_record["raw_json"])) if latest_record else None

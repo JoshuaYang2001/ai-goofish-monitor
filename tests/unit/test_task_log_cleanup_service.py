@@ -24,18 +24,18 @@ def test_cleanup_task_logs_removes_only_expired_top_level_logs(tmp_path):
     logs_dir = tmp_path / "logs"
     old_log = logs_dir / "old_task.log"
     recent_log = logs_dir / "recent_task.log"
-    nested_ai_log = logs_dir / "ai" / "old_ai.log"
+    nested_task_log = logs_dir / "nested" / "old_task.log"
     state_file = logs_dir / "task-failure-guard.json"
 
     _write_file(old_log)
     _write_file(recent_log)
-    _write_file(nested_ai_log)
+    _write_file(nested_task_log)
     _write_file(state_file, "{}")
 
     now = datetime(2026, 3, 19, 12, 0, 0)
     _set_mtime(old_log, datetime(2026, 3, 1, 0, 0, 0))
     _set_mtime(recent_log, datetime(2026, 3, 18, 23, 0, 0))
-    _set_mtime(nested_ai_log, datetime(2026, 3, 1, 0, 0, 0))
+    _set_mtime(nested_task_log, datetime(2026, 3, 1, 0, 0, 0))
     _set_mtime(state_file, datetime(2026, 3, 1, 0, 0, 0))
 
     removed = cleanup_task_logs(str(logs_dir), keep_days=7, now=now)
@@ -43,7 +43,7 @@ def test_cleanup_task_logs_removes_only_expired_top_level_logs(tmp_path):
     assert removed == [str(old_log)]
     assert not old_log.exists()
     assert recent_log.exists()
-    assert nested_ai_log.exists()
+    assert nested_task_log.exists()
     assert state_file.exists()
 
 

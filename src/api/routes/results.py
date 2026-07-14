@@ -77,25 +77,16 @@ async def get_result_file_content(
     filename: str,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    recommended_only: bool = Query(False),  # 兼容旧参数，等价于 ai_recommended_only
-    ai_recommended_only: bool = Query(False),
-    keyword_recommended_only: bool = Query(False),
+    matched_only: bool = Query(False),
     sort_by: str = Query("crawl_time"),
     sort_order: str = Query("desc"),
 ):
     """读取指定的 .jsonl 文件内容，支持分页、筛选和排序"""
-    if ai_recommended_only and keyword_recommended_only:
-        raise HTTPException(status_code=400, detail="AI推荐筛选与关键词推荐筛选不能同时开启。")
-
-    if recommended_only and not ai_recommended_only and not keyword_recommended_only:
-        ai_recommended_only = True
-
     try:
         validate_result_filename(filename)
         total_items, items = await query_result_records(
             filename,
-            ai_recommended_only=ai_recommended_only,
-            keyword_recommended_only=keyword_recommended_only,
+            matched_only=matched_only,
             sort_by=sort_by,
             sort_order=sort_order,
             page=page,
@@ -130,23 +121,15 @@ async def get_result_file_insights(filename: str):
 @router.get("/{filename}/export")
 async def export_result_file_content(
     filename: str,
-    recommended_only: bool = Query(False),
-    ai_recommended_only: bool = Query(False),
-    keyword_recommended_only: bool = Query(False),
+    matched_only: bool = Query(False),
     sort_by: str = Query("crawl_time"),
     sort_order: str = Query("desc"),
 ):
-    if ai_recommended_only and keyword_recommended_only:
-        raise HTTPException(status_code=400, detail="AI推荐筛选与关键词推荐筛选不能同时开启。")
-    if recommended_only and not ai_recommended_only and not keyword_recommended_only:
-        ai_recommended_only = True
-
     try:
         validate_result_filename(filename)
         results = await load_all_result_records(
             filename,
-            ai_recommended_only=ai_recommended_only,
-            keyword_recommended_only=keyword_recommended_only,
+            matched_only=matched_only,
             sort_by=sort_by,
             sort_order=sort_order,
         )

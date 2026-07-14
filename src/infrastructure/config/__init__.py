@@ -1,3 +1,3 @@
-from .settings import settings, AppSettings, AISettings, NotificationSettings
+from .settings import settings, AppSettings, NotificationSettings
 
-__all__ = ["settings", "AppSettings", "AISettings", "NotificationSettings"]
+__all__ = ["settings", "AppSettings", "NotificationSettings"]

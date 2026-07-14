@@ -45,8 +45,7 @@ def test_save_to_jsonl(tmp_path, monkeypatch):
     records = asyncio.run(
         load_all_result_records(
             "sony_a7m4_full_data.jsonl",
-            ai_recommended_only=False,
-            keyword_recommended_only=False,
+            matched_only=False,
             sort_by="crawl_time",
             sort_order="asc",
         )

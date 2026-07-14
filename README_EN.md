@@ -2,13 +2,14 @@
 
 [中文说明](README.md)
 
-A Playwright and AI-powered multi-task real-time monitoring tool for Xianyu (闲鱼), featuring a complete web management interface.
+A Playwright-based multi-tenant monitoring tool for Xianyu (闲鱼), with local rule matching, direct item-ID monitoring, metric history, and notifications.
 
 ## Core Features
 
-- **Web Visual Management**: Task management, account management, AI criteria editing, run logs, results browsing
-- **AI-Driven**: Natural language task creation, multimodal model for in-depth product analysis
-- **Multi-Task Concurrency**: Independent configuration for keywords, prices, filters, and AI prompts
+- **Web Visual Management**: Tasks, accounts, logs, results, and metric changes
+- **Local Rule Matching**: No external model service is required
+- **Direct Item IDs**: Add multiple item IDs to one monitoring task
+- **Metric Windows**: Compare price and want-count changes over 24/48 hours or custom windows
 - **SQLite as Primary Storage**: Tasks, results, and price history are persisted in one embedded database instead of repeatedly scanning `jsonl`
 - **Advanced Filtering**: Free shipping, new listing time range, province/city/district filtering
 - **Instant Notifications**: Supports ntfy.sh, WeChat Work (企业微信), Bark, Telegram, Webhook
@@ -42,10 +43,8 @@ cp .env.example .env
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `OPENAI_API_KEY` | AI model API key | Yes |
-| `OPENAI_BASE_URL` | OpenAI-compatible API base URL | Yes |
-| `OPENAI_MODEL_NAME` | Model name with image input support | Yes |
 | `WEB_USERNAME` / `WEB_PASSWORD` | Web UI login credentials, default `admin/admin123` | No |
+| `AUTH_SECRET_KEY` | Token signing secret, at least 32 characters in production | Yes |
 
 See "Configuration" below for the rest.
 
@@ -67,8 +66,8 @@ chmod +x start.sh
 
 ### Create Your First Task
 
-- `AI mode`: fill in the requirement description. Submission opens a separate progress dialog while the criteria are generated asynchronously.
-- `Keyword mode`: provide keyword rules and the task is created immediately.
+- `Keyword task`: provide a search term and optional local match rules.
+- `Item ID task`: paste multiple numeric IDs separated by spaces, commas, or new lines; the task is created immediately.
 - `Region filter`: now uses a province / city / district selector backed by an embedded Xianyu page snapshot instead of manual text input.
 
 ## 🐳 Docker Deployment (Recommended)
@@ -90,7 +89,6 @@ docker compose down
 - These paths are persisted by default:
   - `data/` for the SQLite primary store (tasks, results, price history)
   - `state/` for login-state cookie files
-  - `prompts/` for task prompt files
   - `logs/` for runtime logs
   - `images/` for downloaded product images and per-task temporary image folders
   - `config.json`, `jsonl/`, and `price_history/` as legacy sources for the first SQLite migration
@@ -100,7 +98,7 @@ docker compose down
 - SQLite is now the online primary storage, with the default path `data/app.sqlite3`
 - You can override the database path with `APP_DATABASE_FILE`; Docker sets it to `/app/data/app.sqlite3`
 - On startup, the app initializes the schema and tries to import existing data once from legacy `config.json`, `jsonl/`, and `price_history/`
-- `state/`, `prompts/`, `logs/`, and `images/` remain filesystem-based and are not stored in SQLite
+- `state/`, `logs/`, and `images/` remain filesystem-based and are not stored in SQLite
 - Product images are temporarily downloaded to `images/task_images_<task_name>/` and are normally cleaned up when the task finishes
 - After the first upgrade and after verifying the database contents in `data/app.sqlite3`, you can decide whether to keep the legacy `config.json`, `jsonl/`, and `price_history/` mounts
 
@@ -111,8 +109,7 @@ docker compose down
 
 ### Task Management
 
-- Supports AI creation, keyword rules, price range, new listing filters, region filters, account binding, and cron scheduling.
-- AI task creation runs as a background job and shows a dedicated progress dialog after submission.
+- Supports keyword rules, batched item IDs, price ranges, listing-age filters, region filters, account binding, and cron scheduling.
 - Region filtering can greatly reduce results, so leaving it empty is the safer default.
 
 ### Account Management
@@ -123,11 +120,11 @@ docker compose down
 ### Results and Logs
 
 - The results page and export endpoints now query SQLite instead of directly scanning `jsonl` files.
-- The logs page is the first place to inspect login-state expiry, anti-bot issues, or AI call failures.
+- The logs page is the first place to inspect login-state expiry or anti-bot issues.
 
 ### System Settings
 
-- View system status, edit prompts, and adjust proxy / rotation-related settings.
+- View system status, configure notifications, and adjust proxy / rotation settings.
 
 </details>
 
@@ -167,10 +164,8 @@ cd web-ui && npm run build
 <details>
 <summary>Click to expand API behavior</summary>
 
-- `POST /api/tasks/generate`
-  - `decision_mode=ai`: returns `202` with a `job`; the client should poll for progress.
-  - `decision_mode=keyword`: returns the created task directly.
-- `GET /api/tasks/generate-jobs/{job_id}`: fetch AI task-generation progress.
+- `POST /api/tasks/`: create a keyword or item-ID task immediately.
+- `GET /api/metrics/changes?interval=24&interval=48`: query metric changes.
 - `POST /auth/status`: validate Web UI credentials.
 
 </details>
@@ -180,10 +175,7 @@ cd web-ui && npm run build
 <details>
 <summary>Click to expand common configuration items</summary>
 
-### AI and Runtime
-
-- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL_NAME`: required AI model settings.
-- `PROXY_URL`: dedicated HTTP/SOCKS5 proxy for AI requests.
+### Runtime
 - `RUN_HEADLESS`: whether the scraper runs headless; keep it `true` in Docker.
 - `SERVER_PORT`: backend port, default `8000`.
 - `LOGIN_IS_EDGE`: use Edge instead of Chrome locally; Docker images do not bundle Edge and always run with Chromium.
@@ -234,12 +226,14 @@ graph TD
     B --> C[Task: Search Products];
     C --> D{Found New Products?};
     D -- Yes --> E[Scrape Product Details & Seller Info];
-    E --> F[Download Product Images];
-    F --> G[Call AI for Analysis];
-    G --> H{AI Recommended?};
-    H -- Yes --> I[Send Notification];
-    H -- No --> J[Save Record to SQLite];
-    I --> J;
+    E --> F{Task Type};
+    F -- Keyword --> G[Local Rule Matching];
+    F -- Item ID --> H[Direct Match];
+    G --> I{Matched?};
+    H --> J[Send Notification];
+    I -- Yes --> J;
+    I -- No --> K[Save Only];
+    J --> K[Save Result and Metrics];
     D -- No --> K[Next Page/Wait];
     K --> C;
     J --> C;
@@ -253,9 +247,9 @@ graph TD
 <details>
 <summary>Click to expand FAQ</summary>
 
-### Why does AI task creation take time?
+### Why are item-ID tasks created immediately?
 
-In AI mode, the system generates analysis criteria before the task itself is created. This now runs as a background job with a separate progress dialog instead of blocking the task form.
+Item IDs no longer pass through a generation step. The client validates and deduplicates the IDs, then the server stores the full batch directly.
 
 ### Why is the region filter optional by default?
 

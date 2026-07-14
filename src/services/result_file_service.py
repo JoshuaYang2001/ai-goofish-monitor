@@ -23,7 +23,7 @@ def enrich_records_with_price_insight(records: list[dict], filename: str) -> lis
     enriched = []
     for record in records:
         info = record.get("商品信息", {}) or {}
-        item_id = str(info.get("商品 ID") or "")
+        item_id = str(info.get("商品ID") or info.get("商品 ID") or "")
 
         # 优先从价格快照中获取最新价格，而不是使用结果文件中的旧价格
         price_from_snapshot = None

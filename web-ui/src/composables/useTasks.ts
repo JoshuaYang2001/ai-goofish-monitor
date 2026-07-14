@@ -2,7 +2,7 @@ import { ref, onMounted } from 'vue'
 import type {
   Task,
   TaskCreateResponse,
-  TaskGenerateRequest,
+  TaskCreateRequest,
   TaskUpdate,
 } from '@/types/task.d.ts'
 import * as taskApi from '@/api/tasks'
@@ -55,11 +55,11 @@ export function useTasks() {
     fetchTasks({ silent: true })
   })
 
-  async function createTask(data: TaskGenerateRequest): Promise<TaskCreateResponse> {
+  async function createTask(data: TaskCreateRequest): Promise<TaskCreateResponse> {
     isLoading.value = true
     error.value = null
     try {
-      return await taskApi.createTaskWithAI(data)
+      return await taskApi.createTask(data)
     } catch (e) {
       if (e instanceof Error) {
         error.value = e

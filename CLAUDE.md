@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-基于 Playwright + AI 的闲鱼智能监控机器人。FastAPI 后端 + Vue 3 前端，支持多任务并发监控、多模态 AI 商品分析、多渠道通知推送。
+基于 Playwright 的闲鱼商品监控系统。FastAPI 后端 + Vue 3 前端，支持多租户隔离、多任务并发、规则匹配、指标变化追踪和多渠道通知推送。
 
 ## 核心架构
 
@@ -15,7 +15,7 @@ API 层 (src/api/routes/)         — FastAPI 路由，通过依赖注入获取�
     ↓
 领域层 (src/domain/)              — Task 模型、Repository 抽象接口
     ↓
-基础设施层 (src/infrastructure/)   — SQLite 持久化、AI/通知客户端、配置管理
+基础设施层 (src/infrastructure/)   — SQLite 持久化、通知客户端、配置管理
 ```
 
 ### 关键入口
@@ -33,8 +33,8 @@ API 层 (src/api/routes/)         — FastAPI 路由，通过依赖注入获取�
 | `TaskService` | 任务 CRUD |
 | `ProcessService` | 爬虫子进程管理（start/stop/lifecycle hooks） |
 | `SchedulerService` | APScheduler 定时调度 |
-| `TaskGenerationService` | AI 驱动的任务创建（后台 job 模式） |
-| `AIAnalysisService` / `ai_handler.py` | 多模态 AI 商品分析 |
+| `MetricsTrackingService` | 价格与想要数变化快照和时间窗口统计 |
+| `ItemAnalysisDispatcher` | 关键词规则匹配与指定商品 ID 直接处理 |
 | `NotificationService` | 多渠道通知（ntfy/Bark/企业微信/Telegram/Gotify/Webhook） |
 | `AccountStrategyService` | 多账号轮换策略 |
 | `DashboardService` | 前端仪表盘数据聚合 |
@@ -47,7 +47,7 @@ API 层 (src/api/routes/)         — FastAPI 路由，通过依赖注入获取�
 
 - **SQLite**（主存储）：默认路径 `data/app.sqlite3`，可通过 `APP_DATABASE_FILE` 自定义
 - `sqlite_bootstrap.py`：首次启动自动建库建表，并尝试从旧 `config.json`/`jsonl/`/`price_history/` 导入历史数据
-- **文件系统**：`state/`（登录态）、`prompts/`（提示词）、`logs/`（运行日志）、`images/`（商品图片）
+- **文件系统**：`state/`（登录态）、`logs/`（运行日志）、`images/`（商品图片）
 - Repository 模式：`src/domain/repositories/task_repository.py` 定义抽象接口，`SqliteTaskRepository` 实现
 
 ### 数据流
@@ -69,14 +69,14 @@ Vue 3 + Vite + TypeScript + shadcn-vue + Tailwind CSS + vue-i18n（中英双语�
 /login          — 登录页
 /               — MainLayout（侧边栏导航），含：
   /dashboard    — 监控概览
-  /tasks        — 任务管理（AI 创建 + 关键词规则创建）
+  /tasks        — 任务管理（关键词规则 + 商品 ID 批量创建）
   /accounts     — 闲鱼账号管理
   /results      — 结果浏览
   /logs         — 运行日志
   /settings     — 系统设置
 ```
 
-前端 composable 按视图拆分：`useTasks`、`useDashboard`、`useLogs`、`useResults`、`useSettings`、`useWebSocket`、`useTaskGenerationJob`。
+前端 composable 按视图拆分：`useTasks`、`useDashboard`、`useLogs`、`useResults`、`useSettings`、`useWebSocket`。
 
 Vite 开发服务器代理 `/api`、`/auth`、`/ws` 到 `http://127.0.0.1:8000`。`npm run build` 生成 `web-ui/dist/`，由 `start.sh` 复制到仓库根 `dist/` 供 FastAPI 静态挂载。
 
@@ -118,19 +118,16 @@ pytest -m live                                  # 真实流量冒烟测试（需
 
 - 框架：pytest（同步，不依赖 pytest-asyncio）
 - 测试目录：`tests/unit/`、`tests/integration/`、`tests/live/`
-- 标记：`live`（需真实凭据）、`live_slow`（慢速可选测试）
+- 标记：`live`（需真实凭据）
 - 测试 fixtures：`tests/conftest.py` 提供 `api_client`（FastAPI TestClient + Fake 服务注入）
 
 ## 配置
 
 环境变量 (`.env`)：
-- AI 模型：`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL_NAME`
 - 通知：`NTFY_TOPIC_URL`, `BARK_URL`, `WX_BOT_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `FEISHU_WEBHOOK_URL`, `DINGTALK_WEBHOOK_URL`
 - 爬虫：`RUN_HEADLESS`, `LOGIN_IS_EDGE`
 - Web 认证：`WEB_USERNAME`, `WEB_PASSWORD`
 - 端口：`SERVER_PORT`
-必填：`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL_NAME`（模型须支持 Vision）
-
 其他重要配置见 `.env.example`：通知渠道、代理轮换、任务失败保护、Web 认证（默认 `admin/admin123`）等。
 
 ## 提交规范
@@ -174,7 +171,7 @@ Conventional Commits：`feat(...)`、`fix(...)`、`refactor(...)`、`chore(...)`
 
 ## 注意事项
 
-- AI 模型必须支持图片上传（多模态）
+- 商品筛选只使用关键词规则；商品 ID 任务直接处理输入的全部 ID
 - Docker 部署需通过 Web UI 手动更新登录状态（`state/` 目录）
 - 遇到滑动验证码时设置 `RUN_HEADLESS=false` 手动处理
 - 生产环境务必修改默认 Web 认证密码

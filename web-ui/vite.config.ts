@@ -11,9 +11,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: '闲鱼智能监控机器人',
+        name: '闲鱼商品监控',
         short_name: '闲鱼监控',
-        description: '基于 AI 的闲鱼商品监控系统',
+        description: '支持多租户隔离、价格与想要数变化追踪的闲鱼商品监控系统',
+        lang: 'zh-CN',
         theme_color: '#1890ff',
         background_color: '#ffffff',
         display: 'standalone',

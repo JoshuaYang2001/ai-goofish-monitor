@@ -10,12 +10,15 @@ from datetime import datetime as dt
 
 from src.config import get_state_file
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
-from src.scraper import scrape_xianyu, scrape_items_by_id_batch
+from src import scraper as scraper_module
+
+scrape_xianyu = scraper_module.scrape_xianyu
+scrape_items_by_id_batch = getattr(scraper_module, "scrape_items_by_id_batch", None)
 
 
 async def main():
     parser = argparse.ArgumentParser(
-        description="闲鱼商品监控脚本，支持多任务配置和实时 AI 分析。",
+        description="闲鱼商品监控脚本，支持多任务配置、规则匹配和指标追踪。",
         epilog="""
 使用示例:
   # 运行 config.json 中定义的所有任务
@@ -98,97 +101,18 @@ async def main():
             f"错误：未找到登录状态文件。请在 state/ 中添加账号或配置 account_state_file。"
         )
 
-    # 读取所有 prompt 文件内容（关键词模式不需要加载 prompt）
+    # 统一为本地规则匹配；指定商品 ID 直接整批监控。
     for task in tasks_config:
         task_type = task.get("task_type", "keyword")
-        decision_mode = str(task.get("decision_mode", "ai")).strip().lower()
-        if decision_mode not in {"ai", "keyword"}:
-            decision_mode = "ai"
-        task["decision_mode"] = decision_mode
-
-        # 商品 ID 监控模式的 prompt 处理
+        keyword_rules = task.get("keyword_rules")
+        if keyword_rules is None and task.get("keyword_rule_groups") is not None:
+            keyword_rules = flatten_legacy_groups(task.get("keyword_rule_groups") or [])
+        normalized_rules = normalize_keywords(keyword_rules)
         if task_type == "item_id":
-            keyword_rules = task.get("keyword_rules")
-            if keyword_rules is None and task.get("keyword_rule_groups") is not None:
-                task["keyword_rules"] = flatten_legacy_groups(task.get("keyword_rule_groups") or [])
-            else:
-                task["keyword_rules"] = normalize_keywords(keyword_rules)
-
-            if decision_mode == "keyword":
-                task["ai_prompt_text"] = ""
-                continue
-
-            if task.get("enabled", False) and task.get("ai_prompt_base_file") and task.get("ai_prompt_criteria_file"):
-                try:
-                    with open(task["ai_prompt_base_file"], 'r', encoding='utf-8') as f_base:
-                        base_prompt = f_base.read()
-                    with open(task["ai_prompt_criteria_file"], 'r', encoding='utf-8') as f_criteria:
-                        criteria_text = f_criteria.read()
-
-                    # 动态组合成最终的 Prompt
-                    task['ai_prompt_text'] = base_prompt.replace("{{CRITERIA_SECTION}}", criteria_text)
-
-                    # 验证生成的 prompt 是否有效
-                    if len(task['ai_prompt_text']) < 100:
-                        print(f"警告：任务 '{task['task_name']}' 生成的 prompt 过短 ({len(task['ai_prompt_text'])} 字符)，可能存在问题。")
-                    elif "{{CRITERIA_SECTION}}" in task['ai_prompt_text']:
-                        print(f"警告：任务 '{task['task_name']}' 的 prompt 中仍包含占位符，替换可能失败。")
-                    else:
-                        print(f"✅ 任务 '{task['task_name']}' 的 prompt 生成成功，长度：{len(task['ai_prompt_text'])} 字符")
-
-                except FileNotFoundError as e:
-                    print(f"警告：任务 '{task['task_name']}' 的 prompt 文件缺失：{e}，该任务的 AI 分析将被跳过。")
-                    task['ai_prompt_text'] = ""
-                except Exception as e:
-                    print(f"错误：任务 '{task['task_name']}' 处理 prompt 文件时发生异常：{e}，该任务的 AI 分析将被跳过。")
-                    task['ai_prompt_text'] = ""
-        else:
-            # 关键词搜索模式的 prompt 处理（原有逻辑）
-            keyword_rules = task.get("keyword_rules")
-            if keyword_rules is None and task.get("keyword_rule_groups") is not None:
-                task["keyword_rules"] = flatten_legacy_groups(task.get("keyword_rule_groups") or [])
-            else:
-                task["keyword_rules"] = normalize_keywords(keyword_rules)
-
-            if decision_mode == "keyword":
-                task["ai_prompt_text"] = ""
-                continue
-
-            if task.get("enabled", False) and task.get("ai_prompt_base_file") and task.get("ai_prompt_criteria_file"):
-                try:
-                    with open(task["ai_prompt_base_file"], 'r', encoding='utf-8') as f_base:
-                        base_prompt = f_base.read()
-                    with open(task["ai_prompt_criteria_file"], 'r', encoding='utf-8') as f_criteria:
-                        criteria_text = f_criteria.read()
-
-                    # 动态组合成最终的 Prompt
-                    task['ai_prompt_text'] = base_prompt.replace("{{CRITERIA_SECTION}}", criteria_text)
-
-                    # 验证生成的 prompt 是否有效
-                    if len(task['ai_prompt_text']) < 100:
-                        print(f"警告：任务 '{task['task_name']}' 生成的 prompt 过短 ({len(task['ai_prompt_text'])} 字符)，可能存在问题。")
-                    elif "{{CRITERIA_SECTION}}" in task['ai_prompt_text']:
-                        print(f"警告：任务 '{task['task_name']}' 的 prompt 中仍包含占位符，替换可能失败。")
-                    else:
-                        print(f"✅ 任务 '{task['task_name']}' 的 prompt 生成成功，长度：{len(task['ai_prompt_text'])} 字符")
-
-                except FileNotFoundError as e:
-                    print(f"警告：任务 '{task['task_name']}' 的 prompt 文件缺失：{e}，该任务的 AI 分析将被跳过。")
-                    task['ai_prompt_text'] = ""
-                except Exception as e:
-                    print(f"错误：任务 '{task['task_name']}' 处理 prompt 文件时发生异常：{e}，该任务的 AI 分析将被跳过。")
-                    task['ai_prompt_text'] = ""
-            elif task.get("enabled", False) and task.get("ai_prompt_file"):
-                try:
-                    with open(task["ai_prompt_file"], 'r', encoding='utf-8') as f:
-                        task['ai_prompt_text'] = f.read()
-                    print(f"✅ 任务 '{task['task_name']}' 的 prompt 文件读取成功，长度：{len(task['ai_prompt_text'])} 字符")
-                except FileNotFoundError:
-                    print(f"警告：任务 '{task['task_name']}' 的 prompt 文件 '{task['ai_prompt_file']}' 未找到，该任务的 AI 分析将被跳过。")
-                    task['ai_prompt_text'] = ""
-                except Exception as e:
-                    print(f"错误：任务 '{task['task_name']}' 读取 prompt 文件时发生异常：{e}，该任务的 AI 分析将被跳过。")
-                    task['ai_prompt_text'] = ""
+            normalized_rules = normalize_keywords(task.get("item_id_list"))
+        elif not normalized_rules and task.get("keyword"):
+            normalized_rules = [str(task["keyword"]).strip()]
+        task["keyword_rules"] = normalized_rules
 
     print("\n--- 开始执行监控任务 ---")
     if args.debug_limit > 0:

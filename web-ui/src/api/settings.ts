@@ -21,13 +21,6 @@ export interface NotificationTestResponse {
   }>
 }
 
-export interface AiSettings {
-  OPENAI_API_KEY?: string
-  OPENAI_BASE_URL?: string
-  OPENAI_MODEL_NAME?: string
-  PROXY_URL?: string
-}
-
 export interface RotationSettings {
   ACCOUNT_ROTATION_ENABLED?: boolean
   ACCOUNT_ROTATION_MODE?: string
@@ -44,7 +37,6 @@ export interface RotationSettings {
 export interface SystemStatus {
   scraper_running: boolean
   running_task_ids?: number[]
-  ai_configured?: boolean
   notification_configured?: boolean
   headless_mode?: boolean
   running_in_docker?: boolean
@@ -54,9 +46,6 @@ export interface SystemStatus {
   }
   env_file: {
     exists: boolean
-    openai_api_key_set: boolean
-    openai_base_url_set: boolean
-    openai_model_name_set: boolean
     feishu_webhook_url_set: boolean
   }
   configured_notification_channels?: string[]
@@ -84,18 +73,6 @@ export async function testNotificationSettings(
   })
 }
 
-export async function getAiSettings(): Promise<AiSettings> {
-  return await http('/api/settings/ai')
-}
-
-export async function updateAiSettings(settings: AiSettings): Promise<void> {
-  await http('/api/settings/ai', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings)
-  })
-}
-
 export async function getRotationSettings(): Promise<RotationSettings> {
   return await http('/api/settings/rotation')
 }
@@ -103,14 +80,6 @@ export async function getRotationSettings(): Promise<RotationSettings> {
 export async function updateRotationSettings(settings: RotationSettings): Promise<void> {
   await http('/api/settings/rotation', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings)
-  })
-}
-
-export async function testAiSettings(settings: AiSettings): Promise<{ success: boolean; message: string; response?: string }> {
-  return await http('/api/settings/ai/test', {
-    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings)
   })
@@ -130,19 +99,4 @@ export async function updateLoginState(content: string): Promise<{ message: stri
 
 export async function deleteLoginState(): Promise<{ message: string }> {
   return await http('/api/login-state', { method: 'DELETE' })
-}
-
-// ===== AI Toggle API =====
-
-export async function getAiEnabled(): Promise<boolean> {
-  const response = await http('/api/settings/ai-enabled')
-  return response.ai_enabled
-}
-
-export async function setAiEnabled(enabled: boolean): Promise<{ message: string; ai_enabled: boolean }> {
-  return await http('/api/settings/ai-enabled', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled })
-  })
 }

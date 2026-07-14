@@ -1,4 +1,4 @@
-type WebSocketEventHandler = (data: any) => void;
+type WebSocketEventHandler = (data: unknown) => void;
 
 class WebSocketService {
   private ws: WebSocket | null = null;
@@ -10,7 +10,7 @@ class WebSocketService {
   constructor() {
     // 延迟连接，等待认证完成
     // 只有在已登录时才尝试连接
-    if (localStorage.getItem('auth_logged_in') === 'true') {
+    if (localStorage.getItem('auth_access_token')) {
       this.connect();
     }
   }
@@ -37,7 +37,9 @@ class WebSocketService {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host; // This includes port if present
 
-    const url = `${protocol}//${host}/ws`;
+    const token = localStorage.getItem('auth_access_token');
+    if (!token) return;
+    const url = `${protocol}//${host}/ws?token=${encodeURIComponent(token)}`;
 
     console.log(`Connecting to WebSocket at ${url}`);
     this.ws = new WebSocket(url);
@@ -67,7 +69,7 @@ class WebSocketService {
         this.emit('disconnected', { isConnected: false });
       }
       // 只有在 shouldConnect 为 true 或已登录时才重连
-      if (this.shouldConnect || localStorage.getItem('auth_logged_in') === 'true') {
+      if (this.shouldConnect && localStorage.getItem('auth_access_token')) {
         setTimeout(() => this.connect(), this.reconnectInterval);
       }
     };
@@ -96,7 +98,7 @@ class WebSocketService {
     }
   }
 
-  private emit(event: string, data: any) {
+  private emit(event: string, data: unknown) {
     const handlers = this.listeners.get(event);
     if (handlers) {
       handlers.forEach((handler) => handler(data));

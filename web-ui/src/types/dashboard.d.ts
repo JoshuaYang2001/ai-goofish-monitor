@@ -6,8 +6,7 @@ export interface DashboardSummary {
   result_files: number
   scanned_items: number
   recommended_items: number
-  ai_recommended_items: number
-  keyword_recommended_items: number
+  rule_matched_items: number
   last_updated_at: string | null
 }
 
@@ -23,8 +22,7 @@ export interface DashboardTaskSummary {
   region: string | null
   total_items: number
   recommended_items: number
-  ai_recommended_items: number
-  keyword_recommended_items: number
+  rule_matched_items: number
   latest_crawl_time: string | null
   latest_recommended_title: string | null
   latest_recommended_price: number | null
