@@ -87,7 +87,14 @@ class AppSettings(_EnvSettings):
     server_port: int = _env_field(8000, "SERVER_PORT")
     web_username: str = _env_field("admin", "WEB_USERNAME")
     web_password: str = _env_field("admin123", "WEB_PASSWORD")
-    task_log_retention_days: int = _env_field(7, "TASK_LOG_RETENTION_DAYS", ge=1)
+    task_log_retention_days: int = _env_field(20, "TASK_LOG_RETENTION_DAYS", ge=1)
+    monitoring_data_retention_days: int = _env_field(
+        20,
+        "MONITORING_DATA_RETENTION_DAYS",
+        ge=1,
+    )
+    max_concurrent_tasks: int = _env_field(1, "MAX_CONCURRENT_TASKS", ge=1)
+    max_tasks: int = _env_field(30, "MAX_TASKS", ge=1)
 
     # 文件路径配置
     config_file: str = "config.json"

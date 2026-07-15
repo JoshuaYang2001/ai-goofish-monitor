@@ -205,6 +205,10 @@ cd web-ui && npm run build
 - `SERVER_PORT`：后端监听端口，默认 `8000`。
 - `LOGIN_IS_EDGE`：本地环境可切换为 Edge 内核；Docker 镜像未内置 Edge，容器内会固定使用 Chromium。
 - `PCURL_TO_MOBILE`：是否将 PC 商品链接转换为移动端链接。
+- `MAX_CONCURRENT_TASKS`：同时运行的定时爬虫数量，默认 `1`；小型服务器建议保持 `1`，资源充足时可设为 `2`。
+- `MAX_TASKS`：每个租户最多允许创建的监控任务数量，默认 `30`。
+- `MONITORING_DATA_RETENTION_DAYS`：价格快照和想要数/浏览量指标历史保留天数，默认 `20`；商品搜索结果会保留，用于结果展示和历史去重。
+- `TASK_LOG_RETENTION_DAYS`：任务运行日志保留天数，默认 `20`。
 
 ### 通知
 

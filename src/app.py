@@ -28,6 +28,7 @@ from src.services.task_service import TaskService
 from src.services.process_service import ProcessService
 from src.services.scheduler_service import SchedulerService
 from src.services.task_log_cleanup_service import cleanup_task_logs
+from src.services.monitoring_data_cleanup_service import cleanup_monitoring_data
 from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.infrastructure.config.settings import settings as app_settings
@@ -39,7 +40,10 @@ from fastapi import Depends
 
 # 全局服务实例
 process_service = ProcessService()
-scheduler_service = SchedulerService(process_service)
+scheduler_service = SchedulerService(
+    process_service,
+    max_concurrent_tasks=app_settings.max_concurrent_tasks,
+)
 
 
 async def _sync_task_runtime_status(task_id: int, is_running: bool) -> None:
@@ -54,9 +58,22 @@ async def _sync_task_runtime_status(task_id: int, is_running: bool) -> None:
     )
 
 
+async def _sync_task_queue_status(task_id: int, is_queued: bool) -> None:
+    await websocket.broadcast_message(
+        "task_queue_changed",
+        {"id": task_id, "is_queued": is_queued},
+    )
+
+
 process_service.set_lifecycle_hooks(
     on_started=lambda task_id: _sync_task_runtime_status(task_id, True),
     on_stopped=lambda task_id: _sync_task_runtime_status(task_id, False),
+)
+scheduler_service.set_queue_status_hook(
+    on_queue_changed=lambda task_id, is_queued: _sync_task_queue_status(
+        task_id,
+        is_queued,
+    ),
 )
 
 # 设置全局 ProcessService 实例供依赖注入使用
@@ -76,6 +93,7 @@ async def lifespan(app: FastAPI):
         with tenant_scope(tenant_id):
             bootstrap_sqlite_storage()
             cleanup_task_logs(keep_days=app_settings.task_log_retention_days)
+            cleanup_monitoring_data(keep_days=app_settings.monitoring_data_retention_days)
             task_repo = SqliteTaskRepository()
             task_service = TaskService(task_repo)
             tasks_list = await task_service.get_all_tasks()

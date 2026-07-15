@@ -17,6 +17,7 @@ from src.domain.models.task import TaskCreate, TaskUpdate
 from src.utils import resolve_task_log_path
 from src.services.account_strategy_service import normalize_account_strategy
 from src.api.routes import websocket
+from src.infrastructure.config.settings import settings as app_settings
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 async def _reload_scheduler_if_needed(
@@ -70,6 +71,12 @@ async def create_task(
     scheduler_service: SchedulerService = Depends(get_scheduler_service),
 ):
     """创建新任务"""
+    existing_tasks = await service.get_all_tasks()
+    if len(existing_tasks) >= app_settings.max_tasks:
+        raise HTTPException(
+            status_code=400,
+            detail=f"监控任务数量已达上限，最多只能创建 {app_settings.max_tasks} 条任务",
+        )
     task = await service.create_task(task_create)
     await _reload_scheduler_if_needed(service, scheduler_service)
     await websocket.broadcast_message("tasks_updated", {"id": task.id, "action": "created"})
@@ -138,6 +145,7 @@ async def start_task(
     task_id: int,
     task_service: TaskService = Depends(get_task_service),
     process_service: ProcessService = Depends(get_process_service),
+    scheduler_service: SchedulerService = Depends(get_scheduler_service),
 ):
     """启动单个任务"""
     task = await task_service.get_task(task_id)
@@ -147,6 +155,9 @@ async def start_task(
         raise HTTPException(status_code=400, detail="任务已被禁用，无法启动")
     if task.is_running:
         raise HTTPException(status_code=400, detail="任务已在运行中")
+    is_task_queued = getattr(scheduler_service, "is_task_queued", None)
+    if callable(is_task_queued) and is_task_queued(task_id):
+        raise HTTPException(status_code=400, detail="任务已在定时队列中，请等待当前爬虫完成")
     success = await process_service.start_task(task_id, task.task_name)
     if not success:
         raise HTTPException(status_code=500, detail="启动任务失败")

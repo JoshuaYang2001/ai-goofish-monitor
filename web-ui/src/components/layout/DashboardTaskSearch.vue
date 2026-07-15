@@ -54,6 +54,7 @@ function matchesTask(task: Task, value: string) {
 
 function getTaskStatus(task: Task) {
   if (task.is_running) return t('common.running')
+  if (task.is_queued) return t('tasks.table.queued')
   if (task.enabled) return t('common.enabled')
   return t('common.disabled')
 }
@@ -157,6 +158,7 @@ watch(normalizedQuery, () => {
 
 on('tasks_updated', fetchTasks)
 on('task_status_changed', fetchTasks)
+on('task_queue_changed', fetchTasks)
 
 onMounted(() => {
   document.addEventListener('mousedown', handlePointerDown)
@@ -224,7 +226,7 @@ onBeforeUnmount(() => {
           >
             <div
               class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
-              :class="task.is_running ? 'bg-emerald-400' : task.enabled ? 'bg-sky-400' : 'bg-slate-300'"
+              :class="task.is_running ? 'bg-emerald-400' : task.is_queued ? 'bg-amber-400' : task.enabled ? 'bg-sky-400' : 'bg-slate-300'"
             />
             <div class="min-w-0 flex-1">
               <div class="flex items-center justify-between gap-3">

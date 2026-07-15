@@ -20,6 +20,7 @@ export interface Task {
   region?: string | null;
   keyword_rules: string[];
   is_running: boolean;
+  is_queued: boolean;
   is_paused: boolean;
 }
 
@@ -29,7 +30,7 @@ export interface TaskCreateResponse {
 }
 
 // For PATCH requests, all fields are optional
-export type TaskUpdate = Partial<Omit<Task, 'id' | 'next_run_at'>>;
+export type TaskUpdate = Partial<Omit<Task, 'id' | 'next_run_at' | 'is_queued'>>;
 
 // For task creation
 export interface TaskCreateRequest {

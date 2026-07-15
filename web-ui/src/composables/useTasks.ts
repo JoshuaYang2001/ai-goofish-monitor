@@ -43,6 +43,17 @@ export function useTasks() {
     const task = tasks.value.find((t) => t.id === data.id)
     if (task) {
       task.is_running = data.is_running
+      if (data.is_running) {
+        task.is_queued = false
+      }
+    }
+    fetchTasks({ silent: true })
+  })
+
+  on('task_queue_changed', (data: { id: number; is_queued: boolean }) => {
+    const task = tasks.value.find((t) => t.id === data.id)
+    if (task) {
+      task.is_queued = data.is_queued
     }
     fetchTasks({ silent: true })
   })

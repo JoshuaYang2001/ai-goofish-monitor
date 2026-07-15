@@ -13,12 +13,22 @@ def serialize_timestamp(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _is_task_queued(scheduler_service, task_id: int) -> bool:
+    checker = getattr(scheduler_service, "is_task_queued", None)
+    if not callable(checker):
+        return False
+    return bool(checker(task_id))
+
+
 def serialize_task(task: Task, scheduler_service) -> dict[str, Any]:
     payload = task.model_dump()
     next_run_time = None
+    is_queued = False
     if task.id is not None and scheduler_service is not None:
         next_run_time = scheduler_service.get_next_run_time(task.id)
+        is_queued = _is_task_queued(scheduler_service, task.id)
     payload["next_run_at"] = serialize_timestamp(next_run_time)
+    payload["is_queued"] = is_queued
     return payload
 
 

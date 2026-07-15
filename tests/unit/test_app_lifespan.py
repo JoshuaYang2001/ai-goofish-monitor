@@ -53,7 +53,16 @@ def test_lifespan_cleans_task_logs_on_startup(monkeypatch):
         "cleanup_task_logs",
         lambda *args, **kwargs: called.setdefault("keep_days", kwargs.get("keep_days")),
     )
+    monkeypatch.setattr(
+        app_module,
+        "cleanup_monitoring_data",
+        lambda *args, **kwargs: called.setdefault(
+            "monitoring_keep_days",
+            kwargs.get("keep_days"),
+        ),
+    )
     monkeypatch.setattr(app_module.app_settings, "task_log_retention_days", 9)
+    monkeypatch.setattr(app_module.app_settings, "monitoring_data_retention_days", 20)
 
     async def _run():
         async with app_module.lifespan(None):
@@ -64,5 +73,6 @@ def test_lifespan_cleans_task_logs_on_startup(monkeypatch):
 
     assert called["bootstrapped"] is True
     assert called["keep_days"] == 9
+    assert called["monitoring_keep_days"] == 20
     assert fake_scheduler.stopped is True
     assert fake_process.stop_all_called is True

@@ -72,6 +72,7 @@ const resolveAccountName = (task: Task) => {
 const resolveCountdownText = (task: Task) => {
   if (!task.cron) return t('tasks.table.manualTrigger')
   if (!task.enabled) return t('tasks.table.disabled')
+  if (task.is_queued && !task.is_running) return t('tasks.table.queuedForRun')
   return formatCountdown(task.next_run_at, nowMs.value) || t('tasks.table.waitingSchedule')
 }
 
@@ -84,6 +85,26 @@ const resolveCountdownTone = (task: Task) => {
 const resolveNextRunLabel = (task: Task) => {
   if (!task.cron || !task.enabled || !task.next_run_at) return null
   return formatNextRunAbsolute(task.next_run_at)
+}
+
+const isQueued = (task: Task) => task.is_queued && !task.is_running
+
+const resolveStatusLabel = (task: Task) => {
+  if (task.is_running) return t('tasks.table.active')
+  if (isQueued(task)) return t('tasks.table.queued')
+  return t('tasks.table.idle')
+}
+
+const resolveStatusDotClass = (task: Task) => {
+  if (task.is_running) return 'bg-emerald-500 animate-pulse'
+  if (isQueued(task)) return 'bg-amber-500 animate-pulse'
+  return 'bg-slate-300'
+}
+
+const resolveStatusTextClass = (task: Task) => {
+  if (task.is_running) return 'text-emerald-600'
+  if (isQueued(task)) return 'text-amber-600'
+  return 'text-slate-400'
 }
 
 const emit = defineEmits<{
@@ -146,9 +167,9 @@ const emit = defineEmits<{
                   @update:model-value="(val: boolean) => emit('toggle-enabled', task, val)"
                 />
                 <div class="flex items-center gap-1.5">
-                  <div :class="[ 'w-1.5 h-1.5 rounded-full shadow-sm', task.is_running ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300' ]"></div>
-                  <span :class="[ 'text-[9px] font-black tracking-widest uppercase', task.is_running ? 'text-emerald-600' : 'text-slate-400' ]">
-                    {{ task.is_running ? 'ACTIVE' : 'IDLE' }}
+                  <div :class="[ 'w-1.5 h-1.5 rounded-full shadow-sm', resolveStatusDotClass(task) ]"></div>
+                  <span :class="[ 'text-[9px] font-black tracking-widest uppercase', resolveStatusTextClass(task) ]">
+                    {{ resolveStatusLabel(task) }}
                   </span>
                 </div>
               </div>
@@ -262,7 +283,17 @@ const emit = defineEmits<{
             <TableCell class="px-6 align-middle text-right">
               <div class="flex justify-end items-center gap-2">
                 <Button
-                  v-if="!task.is_running"
+                  v-if="isQueued(task)"
+                  size="sm"
+                  variant="outline"
+                  class="h-8 px-3 rounded-lg border-amber-200 bg-amber-50/70 text-amber-700 pointer-events-none"
+                  disabled
+                >
+                  <RefreshCcw class="w-3 h-3 mr-1.5 animate-spin" />
+                  <span class="font-bold text-[11px]">{{ t('tasks.table.queued') }}</span>
+                </Button>
+                <Button
+                  v-else-if="!task.is_running"
                   size="sm"
                   variant="default"
                   class="h-8 px-3 rounded-lg shadow-sm transition-all active:scale-95 text-white border-none"

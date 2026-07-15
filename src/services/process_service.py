@@ -403,6 +403,10 @@ class ProcessService:
             return
         await asyncio.shield(watcher)
 
+    async def wait_for_task(self, task_id: int) -> None:
+        """等待任务子进程退出，供调度器在此期间持续占用并发槽位。"""
+        await self._await_exit_watcher(task_id)
+
     def reindex_after_delete(self, deleted_task_id: int) -> None:
         """删除任务后同步重排运行时索引，避免任务下标漂移。"""
         tenant_id = current_tenant_id(required=False)

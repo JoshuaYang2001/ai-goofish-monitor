@@ -235,7 +235,7 @@ function handleSubmit() {
   }
 
   // Filter out fields that shouldn't be sent in update requests
-  const { id, is_running, next_run_at, ...submitData } = form.value as Task
+  const { id, is_running, is_queued, next_run_at, ...submitData } = form.value as Task
 
   // 设置任务类型
   submitData.task_type = taskType.value

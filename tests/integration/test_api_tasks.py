@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 
+from src.api.routes import tasks as task_routes
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 
 
@@ -123,6 +124,31 @@ def test_create_task_rejects_invalid_cron_expression(api_client, sample_task_pay
     response = api_client.post("/api/tasks/", json=payload)
 
     assert response.status_code == 422
+
+
+def test_create_task_rejects_when_task_limit_is_reached(
+    api_client,
+    sample_task_payload,
+    monkeypatch,
+):
+    monkeypatch.setattr(task_routes.app_settings, "max_tasks", 2)
+
+    for index in range(2):
+        payload = dict(sample_task_payload)
+        payload["task_name"] = f"Sony A7M4 {index}"
+        payload["keyword"] = f"sony a7m4 {index}"
+        payload["keyword_rules"] = [payload["keyword"]]
+        assert api_client.post("/api/tasks/", json=payload).status_code == 200
+
+    payload = dict(sample_task_payload)
+    payload["task_name"] = "Sony A7M4 limit"
+    payload["keyword"] = "sony a7m4 limit"
+    payload["keyword_rules"] = [payload["keyword"]]
+
+    response = api_client.post("/api/tasks/", json=payload)
+
+    assert response.status_code == 400
+    assert "最多只能创建 2 条任务" in response.json()["detail"]
 
 
 def test_delete_task_stops_runtime_and_reindexes_process_state(
