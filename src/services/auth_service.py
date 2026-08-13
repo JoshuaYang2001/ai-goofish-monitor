@@ -96,6 +96,57 @@ def bootstrap_control_storage() -> None:
         is_superadmin=True,
         if_not_exists=True,
     )
+    migrate_legacy_members_to_personal_tenants()
+
+
+def _personal_tenant_id(user_id: int) -> str:
+    return f"user-{user_id}"
+
+
+def migrate_legacy_members_to_personal_tenants() -> None:
+    """Move legacy shared-tenant members into empty personal tenants.
+
+    Older versions treated registration as adding a member to the registering
+    administrator's tenant. The product now defines an account as an isolated
+    workspace, so users that have no owner membership must be detached from the
+    shared tenant during bootstrap.
+    """
+    created_tenant_ids: list[str] = []
+    now = int(time.time())
+    with control_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT u.id AS user_id, u.username
+            FROM users u
+            JOIN tenant_memberships tm ON tm.user_id = u.id
+            WHERE u.status = 'active'
+            GROUP BY u.id, u.username
+            HAVING SUM(CASE WHEN tm.role = 'owner' THEN 1 ELSE 0 END) = 0
+            """
+        ).fetchall()
+        for row in rows:
+            user_id = int(row["user_id"])
+            tenant_id = _personal_tenant_id(user_id)
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO tenants (id, name, status, created_at)
+                VALUES (?, ?, 'active', ?)
+                """,
+                (tenant_id, f"{row['username']} 的账户", now),
+            )
+            conn.execute("DELETE FROM tenant_memberships WHERE user_id = ?", (user_id,))
+            conn.execute(
+                """
+                INSERT INTO tenant_memberships (tenant_id, user_id, role)
+                VALUES (?, ?, 'owner')
+                """,
+                (tenant_id, user_id),
+            )
+            created_tenant_ids.append(tenant_id)
+        conn.commit()
+
+    for tenant_id in created_tenant_ids:
+        ensure_tenant_workspace(tenant_id)
 
 
 def create_tenant_with_owner(
@@ -167,7 +218,7 @@ def register_tenant_member(
     username: str,
     password: str,
 ) -> Identity:
-    """使用平台管理员或租户所有者凭证注册同租户普通成员。"""
+    """使用管理员凭证创建拥有独立工作区的新账号。"""
     normalized_username = username.strip()
     if len(normalized_username) < 3 or len(normalized_username) > 80:
         raise ValueError("用户名长度必须在 3 到 80 个字符之间")
@@ -217,12 +268,21 @@ def register_tenant_member(
         except sqlite3.IntegrityError as exc:
             raise ValueError("用户名已存在") from exc
         user_id = int(cursor.lastrowid)
+        tenant_id = _personal_tenant_id(user_id)
+        tenant_name = f"{normalized_username} 的账户"
+        conn.execute(
+            """
+            INSERT INTO tenants (id, name, status, created_at)
+            VALUES (?, ?, 'active', ?)
+            """,
+            (tenant_id, tenant_name, now),
+        )
         conn.execute(
             """
             INSERT INTO tenant_memberships (tenant_id, user_id, role)
-            VALUES (?, ?, 'member')
+            VALUES (?, ?, 'owner')
             """,
-            (admin_identity.tenant_id, user_id),
+            (tenant_id, user_id),
         )
         row = conn.execute(
             """
@@ -233,10 +293,11 @@ def register_tenant_member(
             JOIN tenants t ON t.id = tm.tenant_id
             WHERE u.id = ? AND t.id = ?
             """,
-            (user_id, admin_identity.tenant_id),
+            (user_id, tenant_id),
         ).fetchone()
         conn.commit()
 
+    ensure_tenant_workspace(tenant_id)
     return Identity(**dict(row))
 
 

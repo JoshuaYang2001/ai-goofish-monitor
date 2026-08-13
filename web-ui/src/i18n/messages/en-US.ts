@@ -96,7 +96,7 @@ const enUS = {
   },
   register: {
     title: 'Register Account',
-    description: 'Use administrator authorization to create a member in the current tenant.',
+    description: 'Use administrator authorization to create an account with isolated data and notification settings.',
     adminSection: 'Administrator Authorization',
     adminHint: 'The administrator credentials are used only to authorize this registration.',
     adminUsername: 'Administrator Username',
@@ -109,7 +109,7 @@ const enUS = {
     submit: 'Register Account',
     submitting: 'Registering...',
     backToLogin: 'Back to Sign In',
-    success: 'Account "{username}" was registered and can now sign in.',
+    success: 'Isolated account "{username}" was registered and can now sign in and configure its own Feishu bot.',
     errors: {
       missingFields: 'Complete the administrator credentials and new account fields.',
       passwordMismatch: 'The new passwords do not match.',

@@ -69,6 +69,29 @@ class EnvManager:
         env_vars = self.read_env()
         return env_vars.get(key, default)
 
+    def get_tenant_value(
+        self,
+        key: str,
+        default: Optional[str] = None,
+        *,
+        allow_default_runtime_fallback: bool = True,
+    ) -> Optional[str]:
+        """Read a tenant-owned value without leaking another tenant's runtime secret."""
+        try:
+            tenant_id = current_tenant_id()
+        except RuntimeError:
+            file_value = self.read_env().get(key)
+            if file_value is not None:
+                return file_value
+            return os.getenv(key, default)
+
+        tenant_value = self.read_env().get(key)
+        if tenant_value is not None:
+            return tenant_value
+        if allow_default_runtime_fallback and tenant_id == "default":
+            return os.getenv(key, default)
+        return default
+
     def update_values(self, updates: Dict[str, str]) -> bool:
         """批量更新环境变量"""
         return self.apply_changes(updates=updates)
