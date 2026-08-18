@@ -1,20 +1,37 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ai-goofish-monitor:latest
+    image: ${APP_IMAGE:-joshuayang2001/ai-goofish-monitor:latest}
     container_name: ai-goofish-monitor-app
     init: true
+    pull_policy: always
     ports:
-      - "8000:8000"
+      - "${HOST_PORT:-8000}:8000"
     env_file:
       - .env
     environment:
+      SERVER_PORT: 8000
+      RUN_HEADLESS: "true"
       CONTROL_DATABASE_FILE: /app/data/control.sqlite3
       TENANT_DATA_ROOT: /app/data/tenants
     volumes:
       - ./.env:/app/.env
       - ./data:/app/data
+      - ./state:/app/state
+      - ./logs:/app/logs
+      - ./images:/app/images
+      - ./jsonl:/app/jsonl
+      - ./price_history:/app/price_history
       - ./config.json:/app/config.json
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     restart: unless-stopped

@@ -89,7 +89,7 @@ class AppSettings(_EnvSettings):
     web_password: str = _env_field("admin123", "WEB_PASSWORD")
     task_log_retention_days: int = _env_field(20, "TASK_LOG_RETENTION_DAYS", ge=1)
     monitoring_data_retention_days: int = _env_field(
-        20,
+        90,
         "MONITORING_DATA_RETENTION_DAYS",
         ge=1,
     )

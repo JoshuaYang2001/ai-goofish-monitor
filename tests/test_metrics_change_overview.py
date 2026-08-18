@@ -99,14 +99,15 @@ def test_changes_route_accepts_repeated_interval_parameters(tmp_path, monkeypatc
     app.include_router(metrics.router)
 
     with TestClient(app) as client:
-        missing_task_response = client.get(
+        all_tasks_response = client.get(
             "/api/metrics/changes?interval=24&interval=48"
         )
         response = client.get(
             "/api/metrics/changes?interval=24&interval=48&task_name=手机监控"
         )
 
-    assert missing_task_response.status_code == 422
+    assert all_tasks_response.status_code == 200
+    assert all_tasks_response.json()["interval_hours"] == [24, 48]
     assert response.status_code == 200
     assert response.json()["interval_hours"] == [24, 48]
 
@@ -153,3 +154,72 @@ def test_change_overview_only_aggregates_selected_task(tmp_path, monkeypatch):
     assert [item["item_id"] for item in overview["items"]] == ["camera-1"]
     assert overview["summaries"]["24"]["want_change"] == 10
     assert overview["summaries"]["24"]["price_change"] == -200.0
+
+
+def test_change_overview_marks_window_unavailable_when_latest_snapshot_is_stale(
+    tmp_path, monkeypatch
+):
+    database_path = tmp_path / "stale-metrics.sqlite3"
+    monkeypatch.setenv("APP_DATABASE_FILE", str(database_path))
+    now = datetime(2026, 7, 14, 12, 0, 0)
+
+    with sqlite_connection() as conn:
+        init_schema(conn)
+        for hours_ago, want_count in ((12, 10), (10, 20)):
+            conn.execute(
+                """
+                INSERT INTO item_metrics_history (
+                    task_name, item_id, title, snapshot_time, price, want_count
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "相机监控",
+                    "camera-1",
+                    "camera-1",
+                    (now - timedelta(hours=hours_ago)).isoformat(),
+                    5000,
+                    want_count,
+                ),
+            )
+        conn.commit()
+
+    overview = MetricsTrackingService().get_change_overview(
+        [3],
+        task_name="相机监控",
+        now=now,
+    )
+
+    change = overview["items"][0]["changes"]["3"]
+    assert change["available"] is False
+    assert change["baseline_time"] is None
+    assert change["want_change"] is None
+    assert overview["summaries"]["3"]["available_items"] == 0
+
+
+def test_record_metrics_keeps_unchanged_successful_snapshots(tmp_path, monkeypatch):
+    database_path = tmp_path / "complete-metrics.sqlite3"
+    monkeypatch.setenv("APP_DATABASE_FILE", str(database_path))
+    with sqlite_connection() as conn:
+        init_schema(conn)
+
+    service = MetricsTrackingService()
+    for _ in range(2):
+        assert service.record_metrics(
+            task_name="相机监控",
+            item_id="camera-1",
+            title="camera-1",
+            price=5000,
+            price_display="¥5000",
+            want_count=20,
+            browse_count=100,
+            seller_id="seller-1",
+            link="https://example.test/camera-1",
+        ) is True
+
+    with sqlite_connection() as conn:
+        row_count = conn.execute(
+            "SELECT COUNT(*) FROM item_metrics_history WHERE item_id = ?",
+            ("camera-1",),
+        ).fetchone()[0]
+
+    assert row_count == 2

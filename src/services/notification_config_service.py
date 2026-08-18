@@ -230,13 +230,16 @@ def load_notification_settings() -> NotificationSettings:
             attr_name: _load_field_value(env_name)
             for env_name, attr_name in NOTIFICATION_FIELD_MAP.items()
         } | {
-            "pcurl_to_mobile": _env_bool(env_manager.get_value("PCURL_TO_MOBILE"), True),
+            "pcurl_to_mobile": _env_bool(
+                env_manager.get_tenant_value("PCURL_TO_MOBILE"),
+                True,
+            ),
         }
     )
 
 
 def _load_field_value(env_name: str):
-    value = _normalize_existing_text(env_manager.get_value(env_name))
+    value = _normalize_existing_text(env_manager.get_tenant_value(env_name))
     if env_name == "TELEGRAM_API_BASE_URL":
         return value or DEFAULT_TELEGRAM_API_BASE_URL
     if env_name == "WEBHOOK_METHOD":

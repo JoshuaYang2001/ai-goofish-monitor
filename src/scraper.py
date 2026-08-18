@@ -109,6 +109,15 @@ async def _notify_task_failure(
     keyword = task_config.get("keyword", "")
     formatted_reason = _format_failure_reason(reason)
 
+    is_risk_control = any(
+        marker in formatted_reason
+        for marker in (
+            "FAIL_SYS_USER_VALIDATE",
+            "baxia-dialog",
+            "J_MIDDLEWARE_FRAME_WIDGET",
+        )
+    )
+
     # Some failures are deterministic misconfiguration and should pause/notify immediately.
     pause_immediately = any(
         marker in formatted_reason
@@ -116,13 +125,21 @@ async def _notify_task_failure(
             "未找到可用的代理地址",
             "未找到可用的登录状态文件",
         )
-    )
+    ) or is_risk_control
+
+    risk_pause_seconds = None
+    if is_risk_control:
+        risk_pause_seconds = max(
+            60,
+            _as_int(os.getenv("TASK_RISK_CONTROL_PAUSE_SECONDS"), 60 * 60),
+        )
 
     guard_result = FAILURE_GUARD.record_failure(
         task_name,
         formatted_reason,
         cookie_path=cookie_path,
         min_failures_to_pause=1 if pause_immediately else None,
+        pause_seconds_override=risk_pause_seconds,
     )
 
     if not guard_result.get("should_notify"):
@@ -1412,23 +1429,29 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
                     # 尝试从页面直接获取内容作为后备
                     try:
                         if _is_login_url(page.url):
-                            print("商品详情页已跳转到登录页，请重新更新该租户的登录状态")
-                            return None
+                            raise LoginRequiredError(
+                                "商品详情页已跳转到登录页，请重新更新该租户的登录状态"
+                            )
                         page_content = await page.content()
                         if "FAIL_SYS_USER_VALIDATE" in page_content or "验证" in page_content:
-                            print("检测到风控验证页面")
-                            return None
+                            raise RiskControlError("FAIL_SYS_USER_VALIDATE")
                         if "网络不见了" in page_content:
                             print("商品详情页显示网络异常，闲鱼未发起详情接口请求")
                         elif "立即登录" in page_content:
-                            print("商品详情页未识别到有效登录状态，请重新登录闲鱼")
-                    except:
-                        pass
+                            raise LoginRequiredError(
+                                "商品详情页未识别到有效登录状态，请重新登录闲鱼"
+                            )
+                    except (RiskControlError, LoginRequiredError):
+                        raise
+                    except Exception as exc:
+                        print(f"检查商品详情页失败：{exc}")
                     return None
 
             finally:
                 await browser.close()
 
+    except (RiskControlError, LoginRequiredError):
+        raise
     except Exception as e:
         print(f"通过 ID 获取商品详情失败：{e}")
         return None
@@ -1492,13 +1515,25 @@ async def scrape_items_by_id_batch(
     )
 
     processed_count = 0
+    failed_item_ids: List[str] = []
+    request_delay_min = max(
+        0,
+        _as_int(os.getenv("ITEM_ID_REQUEST_DELAY_MIN_SECONDS"), 3),
+    )
+    request_delay_max = max(
+        request_delay_min,
+        _as_int(os.getenv("ITEM_ID_REQUEST_DELAY_MAX_SECONDS"), 7),
+    )
 
-    for item_id in item_ids:
+    for item_index, item_id in enumerate(item_ids):
+        if item_index > 0 and request_delay_max > 0:
+            await random_sleep(request_delay_min, request_delay_max)
         try:
             print(f"正在抓取商品 ID: {item_id}")
             result = await scrape_item_by_id(item_id)
             if not result:
                 print(f"   商品 {item_id} 获取失败，跳过")
+                failed_item_ids.append(str(item_id))
                 continue
 
             # 构建记录结构（与关键词搜索保持一致）
@@ -1552,13 +1587,37 @@ async def scrape_items_by_id_batch(
             )
             processed_count += 1
 
+        except (RiskControlError, LoginRequiredError) as exc:
+            await analysis_dispatcher.join()
+            await _notify_task_failure(
+                task_config,
+                str(exc),
+                cookie_path=get_state_file(),
+            )
+            raise
         except Exception as e:
             print(f"   商品 {item_id} 处理失败：{e}")
+            failed_item_ids.append(str(item_id))
             continue
 
     # 等待所有商品处理任务完成
     log_time("等待后台商品处理任务完成...")
     await analysis_dispatcher.join()
+
+    if processed_count == 0 and item_ids:
+        failure_reason = (
+            f"本次未成功采集任何商品（0/{len(item_ids)}），"
+            f"失败商品 ID：{', '.join(failed_item_ids) or '未知'}"
+        )
+        await _notify_task_failure(
+            task_config,
+            failure_reason,
+            cookie_path=get_state_file(),
+        )
+        raise RuntimeError(failure_reason)
+
+    if processed_count > 0:
+        FAILURE_GUARD.record_success(task_name)
 
     print(f"批量抓取完成，成功处理 {processed_count}/{len(item_ids)} 个商品")
 

@@ -166,6 +166,7 @@ class SchedulerService:
                         replace_existing=True,
                         max_instances=1,
                         coalesce=True,
+                        misfire_grace_time=60,
                     )
                     print(f"  -> 已为任务 '{task.task_name}' 添加定时规则：'{task.cron}'")
                 except ValueError as e:
@@ -225,6 +226,7 @@ class SchedulerService:
                 replace_existing=True,
                 max_instances=1,
                 coalesce=True,
+                misfire_grace_time=60,
             )
             print(f"定时任务已恢复：{task.task_name}")
         except ValueError as e:

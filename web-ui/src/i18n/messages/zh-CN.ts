@@ -96,7 +96,7 @@ const zhCN = {
   },
   register: {
     title: '注册账号',
-    description: '通过管理员授权，为当前租户创建一个普通账号。',
+    description: '通过管理员授权，创建数据与通知配置完全独立的新账号。',
     adminSection: '管理员授权',
     adminHint: '管理员账号和密码仅用于验证本次注册权限。',
     adminUsername: '管理员账号',
@@ -109,7 +109,7 @@ const zhCN = {
     submit: '注册账号',
     submitting: '注册中...',
     backToLogin: '返回登录',
-    success: '账号“{username}”注册成功，现在可以登录。',
+    success: '独立账号“{username}”注册成功，现在可以登录并配置自己的飞书机器人。',
     errors: {
       missingFields: '请完整填写管理员凭证和新账号信息。',
       passwordMismatch: '两次输入的新密码不一致。',

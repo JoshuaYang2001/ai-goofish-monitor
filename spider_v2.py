@@ -198,6 +198,7 @@ async def main():
 
     print("\n--- 所有任务执行完毕 ---")
     executed_index = 0
+    task_failures = []
     for i, task_conf in enumerate(active_task_configs):
         task_type = task_conf.get("task_type", "keyword")
         task_name = task_conf["task_name"]
@@ -211,6 +212,7 @@ async def main():
 
         if isinstance(result, Exception):
             print(f"任务 '{task_name}' 因异常而终止：{result}")
+            task_failures.append((task_name, result))
         else:
             if task_type == "item_id":
                 # 从数据库读取想要数和价格变化
@@ -243,6 +245,10 @@ async def main():
                     print(f"价格变化：¥{price_sign}{price_diff}")
             else:
                 print(f"任务 '{task_name}' 正常结束，本次运行共处理了 {result} 个新商品。")
+
+    if task_failures:
+        failed_names = "、".join(task_name for task_name, _ in task_failures)
+        raise RuntimeError(f"监控任务执行失败：{failed_names}") from task_failures[0][1]
 
 if __name__ == "__main__":
     asyncio.run(main())
