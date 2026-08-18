@@ -4,6 +4,8 @@ import json
 import sys
 import types
 
+import pytest
+
 
 def test_cli_runs_single_named_task(tmp_path, load_json_fixture, monkeypatch):
     fake_scraper = types.ModuleType("src.scraper")
@@ -83,3 +85,48 @@ def test_cli_defaults_keyword_rules_to_search_keyword(tmp_path, load_json_fixtur
 
     assert len(captured) == 1
     assert captured[0]["keyword_rules"] == ["sony a7m4"]
+
+
+def test_cli_exits_with_failure_when_item_id_task_raises(tmp_path, monkeypatch):
+    fake_scraper = types.ModuleType("src.scraper")
+
+    async def placeholder_scrape(task_config, debug_limit):
+        return 0
+
+    async def failed_item_scrape(item_ids, task_config, debug_limit):
+        raise RuntimeError("FAIL_SYS_USER_VALIDATE")
+
+    fake_scraper.scrape_xianyu = placeholder_scrape
+    fake_scraper.scrape_items_by_id_batch = failed_item_scrape
+    monkeypatch.setitem(sys.modules, "src.scraper", fake_scraper)
+    sys.modules.pop("spider_v2", None)
+
+    spider_v2 = importlib.import_module("spider_v2")
+    monkeypatch.setattr(spider_v2, "scrape_items_by_id_batch", failed_item_scrape)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            [
+                {
+                    "task_name": "指定商品监控",
+                    "task_type": "item_id",
+                    "enabled": True,
+                    "item_id_list": ["1001"],
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    state_path = tmp_path / "state.json"
+    state_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(spider_v2, "get_state_file", lambda: str(state_path))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["spider_v2.py", "--config", str(config_path), "--task-name", "指定商品监控"],
+    )
+
+    with pytest.raises(RuntimeError, match="监控任务执行失败"):
+        asyncio.run(spider_v2.main())

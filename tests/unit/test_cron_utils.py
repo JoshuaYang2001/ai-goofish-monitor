@@ -9,6 +9,20 @@ def test_validate_cron_expression_accepts_six_fields():
     assert validate_cron_expression("0 0 8 * * *") == "0 0 8 * * *"
 
 
+def test_validate_cron_expression_rejects_intervals_shorter_than_15_minutes():
+    for expression in ("*/5 * * * *", "*/10 * * * *", "*/30 * * * * *"):
+        try:
+            validate_cron_expression(expression)
+        except ValueError as exc:
+            assert "15 分钟" in str(exc)
+        else:
+            raise AssertionError(f"应该拒绝过高频率：{expression}")
+
+
+def test_validate_cron_expression_accepts_15_minute_boundary():
+    assert validate_cron_expression("*/15 * * * *") == "*/15 * * * *"
+
+
 def test_build_cron_trigger_accepts_alias_and_timezone():
     trigger = build_cron_trigger("@hourly", timezone="Asia/Shanghai")
 

@@ -126,6 +126,22 @@ def test_create_task_rejects_invalid_cron_expression(api_client, sample_task_pay
     assert response.status_code == 422
 
 
+def test_create_and_update_task_reject_cron_shorter_than_15_minutes(
+    api_client, sample_task_payload
+):
+    payload = dict(sample_task_payload)
+    payload["cron"] = "*/5 * * * *"
+
+    create_response = api_client.post("/api/tasks/", json=payload)
+    assert create_response.status_code == 422
+    assert "15 分钟" in create_response.text
+
+    assert api_client.post("/api/tasks/", json=sample_task_payload).status_code == 200
+    update_response = api_client.patch("/api/tasks/0", json={"cron": "*/10 * * * *"})
+    assert update_response.status_code == 422
+    assert "15 分钟" in update_response.text
+
+
 def test_create_task_rejects_when_task_limit_is_reached(
     api_client,
     sample_task_payload,

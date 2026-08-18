@@ -1,6 +1,9 @@
+import type { Task } from './task.d.ts'
+
 export interface MetricIntervalChange {
   hours: number
-  baseline_time: string
+  available: boolean
+  baseline_time: string | null
   baseline_price: number | null
   baseline_want_count: number | null
   price_change: number | null
@@ -27,6 +30,7 @@ export interface MetricChangeSummary {
   price_change: number
   want_changed_items: number
   price_changed_items: number
+  available_items: number
   tracked_items: number
 }
 
@@ -36,4 +40,18 @@ export interface MetricChangesResponse {
   task_names: string[]
   summaries: Record<string, MetricChangeSummary>
   items: MetricChangeItem[]
+}
+
+export interface MetricTaskGroup {
+  key: string
+  taskName: string
+  task: Task | null
+  items: MetricChangeItem[]
+  trackedItems: number
+  availableItems: number
+  wantChange: number | null
+  priceChange: number | null
+  wantChangedItems: number
+  priceChangedItems: number
+  latestSnapshotTime: string | null
 }

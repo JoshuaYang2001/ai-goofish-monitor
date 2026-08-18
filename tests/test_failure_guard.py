@@ -74,3 +74,22 @@ def test_failure_guard_auto_recovers_on_cookie_change(tmp_path):
         now=base + timedelta(minutes=1),
     )
     assert recovered.skip is False
+
+
+def test_failure_guard_supports_shorter_risk_control_cooldown(tmp_path):
+    guard = FailureGuard(
+        path=str(tmp_path / "guard.json"),
+        threshold=3,
+        pause_seconds=24 * 60 * 60,
+    )
+    base = datetime(2026, 3, 4, 12, 0, 0)
+
+    result = guard.record_failure(
+        "task-a",
+        "FAIL_SYS_USER_VALIDATE",
+        min_failures_to_pause=1,
+        pause_seconds_override=60 * 60,
+        now=base,
+    )
+
+    assert result["paused_until"] == base + timedelta(hours=1)

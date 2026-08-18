@@ -40,7 +40,6 @@ const taskType = ref<'keyword' | 'item_id'>('keyword')  // 任务类型
 // 常用 cron 预设选项
 const cronPresets = computed(() => [
   { value: EMPTY_CRON_VALUE, label: t('tasks.form.cron.manual') },
-  { value: '*/5 * * * *', label: t('tasks.form.cron.every5Minutes') },
   { value: '*/15 * * * *', label: t('tasks.form.cron.every15Minutes') },
   { value: '*/30 * * * *', label: t('tasks.form.cron.every30Minutes') },
   { value: '0 * * * *', label: t('tasks.form.cron.hourly') },

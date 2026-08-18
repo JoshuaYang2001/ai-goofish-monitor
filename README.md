@@ -26,27 +26,29 @@
 
 ## 🐳 Docker 部署（推荐）
 
+新服务器可以直接使用一键部署脚本：
+
 ```bash
-git clone https://github.com/Usagi-org/ai-goofish-monitor && cd ai-goofish-monitor
-cp .env.example .env
-vim .env # 填写相关配置项
-docker compose up -d
-docker compose logs -f app
-docker compose down
+curl -fsSL https://raw.githubusercontent.com/JoshuaYang2001/ai-goofish-monitor/master/deploy/install.sh \
+  -o /tmp/ai-goofish-install.sh
+sudo bash /tmp/ai-goofish-install.sh install
 ```
 
-如果镜像无法访问或下载速度慢，可尝试使用加速：
+脚本会生成强密码和认证密钥、创建持久化目录、拉取镜像并等待健康检查通过。完整的更新、备份与 1Panel 使用方法见 [`deploy/README.md`](deploy/README.md)。
+
+也可以克隆仓库后使用 Compose：
+
 ```bash
-
-docker pull ghcr.nju.edu.cn/usagi-org/ai-goofish:latest
-docker tag ghcr.nju.edu.cn/usagi-org/ai-goofish:latest ghcr.io/usagi-org/ai-goofish:latest
+git clone https://github.com/JoshuaYang2001/ai-goofish-monitor
+cd ai-goofish-monitor
+cp .env.example .env
+# 设置 WEB_PASSWORD 和至少 32 字符的 AUTH_SECRET_KEY
 docker compose up -d
-
 ```
 
 - 默认 Web UI 地址：`http://127.0.0.1:8000`
 - Docker 镜像已内置 Chromium，无需宿主机额外安装浏览器。
-- 官方镜像地址：`ghcr.io/usagi-org/ai-goofish:latest`
+- 镜像地址：`joshuayang2001/ai-goofish-monitor:latest`
 - 更新镜像：`docker compose pull && docker compose up -d`
 - 如果你修改了 `.env` 中的 `SERVER_PORT`，请同步更新 `docker-compose.yaml` 里的端口映射。
 - `docker-compose.yaml` 默认会把 SQLite 主库挂载到 `./data:/app/data`，数据库文件默认为 `data/app.sqlite3`
@@ -207,7 +209,7 @@ cd web-ui && npm run build
 - `PCURL_TO_MOBILE`：是否将 PC 商品链接转换为移动端链接。
 - `MAX_CONCURRENT_TASKS`：同时运行的定时爬虫数量，默认 `1`；小型服务器建议保持 `1`，资源充足时可设为 `2`。
 - `MAX_TASKS`：每个租户最多允许创建的监控任务数量，默认 `30`。
-- `MONITORING_DATA_RETENTION_DAYS`：价格快照和想要数/浏览量指标历史保留天数，默认 `20`；商品搜索结果会保留，用于结果展示和历史去重。
+- `MONITORING_DATA_RETENTION_DAYS`：价格快照和想要数/浏览量指标历史保留天数，默认 `90`；商品搜索结果会保留，用于结果展示和历史去重。
 - `TASK_LOG_RETENTION_DAYS`：任务运行日志保留天数，默认 `20`。
 
 ### 通知

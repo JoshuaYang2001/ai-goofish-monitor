@@ -58,11 +58,10 @@ const enUSExtra = {
       cronCustomTab: 'Custom',
       cronPlaceholder: 'Select a schedule',
       cronCustomPlaceholder: 'Example: 0 8 * * * / 0 0 8 * * * / {\'@\'}daily',
-      cronCustomHintLine1: 'Supports 5-part cron: minute hour day month weekday; 6-part cron with seconds; also supports {\'@\'}hourly / {\'@\'}daily / {\'@\'}weekly / {\'@\'}monthly / {\'@\'}yearly. Server timezone: Asia/Shanghai.',
+      cronCustomHintLine1: 'Supports 5-part and 6-part cron expressions with a minimum interval of 15 minutes. Server timezone: Asia/Shanghai.',
       cronCustomHintLine2: 'Examples: every 15 minutes */15 * * * *; every day at 8:00 0 8 * * *; every day at 8:00 with seconds 0 0 8 * * *.',
       cron: {
         manual: 'Manual Only',
-        every5Minutes: 'Every 5 Minutes',
         every15Minutes: 'Every 15 Minutes',
         every30Minutes: 'Every 30 Minutes',
         hourly: 'Hourly',

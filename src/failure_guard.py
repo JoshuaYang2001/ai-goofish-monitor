@@ -295,6 +295,7 @@ class FailureGuard:
         *,
         cookie_path: Optional[str] = None,
         min_failures_to_pause: Optional[int] = None,
+        pause_seconds_override: Optional[int] = None,
         now: Optional[datetime] = None,
     ) -> dict:
         current = _now(self.tz_name, now=now)
@@ -302,6 +303,10 @@ class FailureGuard:
         cookie_mtime = _get_mtime(cookie_path)
 
         effective_threshold = max(1, int(min_failures_to_pause or self.threshold))
+        effective_pause_seconds = max(
+            60,
+            int(pause_seconds_override or self.pause_seconds),
+        )
 
         result = {
             "should_notify": False,
@@ -337,7 +342,7 @@ class FailureGuard:
 
             opened = False
             if consecutive >= effective_threshold:
-                paused_until = current + timedelta(seconds=self.pause_seconds)
+                paused_until = current + timedelta(seconds=effective_pause_seconds)
                 entry["paused_until"] = _dt_to_str(paused_until)
                 opened = not was_paused
 

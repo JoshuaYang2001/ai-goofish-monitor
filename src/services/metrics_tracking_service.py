@@ -24,29 +24,13 @@ class MetricsTrackingService:
         task_name: str = "",
     ) -> bool:
         """
-        记录商品指标快照（仅在价格或想要数变化时记录）
-        Returns: True 表示实际创建了记录，False 表示跳过（数据无变化）
+        记录每次成功采集的商品指标快照。
+
+        完整快照可以区分“数值未变化”与“采集失败”。
+        Returns: True 表示实际创建了记录，False 表示写入失败或重复。
         """
         with sqlite_connection() as conn:
             snapshot_time = datetime.now().isoformat()
-
-            # 检查最新一条记录，如果价格和想要数都相同，则跳过记录
-            cursor = conn.execute(
-                """
-                SELECT price, want_count FROM item_metrics_history
-                WHERE item_id = ? AND task_name = ?
-                ORDER BY snapshot_time DESC LIMIT 1
-                """,
-                (item_id, task_name),
-            )
-            last_record = cursor.fetchone()
-            if last_record:
-                last_price = last_record["price"]
-                last_want_count = last_record["want_count"]
-
-                # 如果价格和想要数都相同，跳过记录
-                if price == last_price and want_count == last_want_count:
-                    return False
 
             try:
                 conn.execute(
@@ -304,6 +288,7 @@ class MetricsTrackingService:
                 "price_change": 0.0,
                 "want_changed_items": 0,
                 "price_changed_items": 0,
+                "available_items": 0,
             }
             for hours in intervals
         }
@@ -317,15 +302,29 @@ class MetricsTrackingService:
                 continue
 
             changes: Dict[str, Dict[str, Any]] = {}
+            latest_time = datetime.fromisoformat(str(latest["snapshot_time"]))
             for hours in intervals:
                 cutoff = current_time - timedelta(hours=hours)
-                baseline = history[0]
+                baseline: Optional[Dict[str, Any]] = None
                 for snapshot in history:
                     snapshot_time = datetime.fromisoformat(str(snapshot["snapshot_time"]))
                     if snapshot_time <= cutoff:
                         baseline = snapshot
                     else:
                         break
+
+                if baseline is None or latest_time <= cutoff:
+                    interval_key = str(hours)
+                    changes[interval_key] = {
+                        "hours": hours,
+                        "available": False,
+                        "baseline_time": None,
+                        "baseline_price": None,
+                        "baseline_want_count": None,
+                        "price_change": None,
+                        "want_change": None,
+                    }
+                    continue
 
                 current_price = latest.get("price")
                 baseline_price = baseline.get("price")
@@ -345,12 +344,14 @@ class MetricsTrackingService:
                 interval_key = str(hours)
                 changes[interval_key] = {
                     "hours": hours,
+                    "available": True,
                     "baseline_time": baseline["snapshot_time"],
                     "baseline_price": baseline_price,
                     "baseline_want_count": baseline_want,
                     "price_change": price_change,
                     "want_change": want_change,
                 }
+                summaries[interval_key]["available_items"] += 1
                 if price_change is not None:
                     summaries[interval_key]["price_change"] += price_change
                     if price_change != 0:
