@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict
 
+from src.domain.models.store_monitoring import StoreMonitoringDigest
 from src.utils import convert_goofish_link
 
 
@@ -50,6 +51,26 @@ class NotificationClient(ABC):
         """
         raise NotImplementedError
 
+    async def send_store_digest(self, digest: StoreMonitoringDigest) -> None:
+        """Send a store digest, with a compact fallback for existing channels.
+
+        Channels that support a richer grouped layout can override this method. The
+        fallback deliberately reuses ``send`` so adding store monitoring does not
+        make existing notification client implementations incompatible.
+        """
+        summary = (
+            f"发现 {digest.discovered_count} 件，成功 {digest.succeeded_count} 件，"
+            f"失败 {digest.failed_count} 件，指标变化 {digest.change_count} 件，"
+            f"新增 {len(digest.added_items)} 件，下架 {len(digest.removed_items)} 件"
+        )
+        product_data = {
+            "商品标题": f"店铺监控汇总 · {digest.display_name}",
+            "当前售价": f"变化 {digest.change_count} 件",
+            "卖家昵称": summary,
+            "商品链接": digest.changes[0].link if digest.changes else "#",
+        }
+        await self.send(product_data, summary)
+
     def _build_message(self, product_data: Dict, reason: str) -> NotificationMessage:
         """格式化消息内容"""
         title = product_data.get('商品标题', 'N/A')
@@ -74,7 +95,7 @@ class NotificationClient(ABC):
         seller_nickname = product_data.get('卖家昵称')
         if seller_nickname:
             content_lines.insert(0, f"卖家: {seller_nickname}")
-        if want_count:
+        if want_count is not None and want_count != "":
             content_lines.append(f"想要数: {want_count}")
         if price_change:
             content_lines.append(f"价格变化: {price_change}")

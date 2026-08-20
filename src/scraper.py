@@ -42,10 +42,12 @@ from src.infrastructure.persistence.storage_names import build_result_filename
 from src.services.item_analysis_dispatcher import (
     ItemAnalysisDispatcher,
     ItemAnalysisJob,
+    parse_metric_count,
 )
 from src.services.price_history_service import (
     build_market_reference,
     load_price_snapshots,
+    parse_price_value,
     record_market_snapshots,
 )
 from src.services.result_storage_service import load_processed_link_keys
@@ -1306,6 +1308,93 @@ async def scrape_xianyu(task_config: dict, debug_limit: int = 0):
     return processed_item_count
 
 
+async def _scrape_item_by_id_in_context(context, item_id: str) -> Optional[Dict]:
+    """在已有登录会话中读取一个商品详情，供店铺任务复用 Context。"""
+    page = await context.new_page()
+    item_url = f"https://www.goofish.com/item?id={item_id}"
+    try:
+        try:
+            detail_response = await _navigate_and_wait_for_detail_response(page, item_url)
+            if not detail_response.ok:
+                print(f"获取商品详情 API 失败：{detail_response.status}")
+                return None
+
+            detail_json = await detail_response.json()
+            ret_string = str(await safe_get(detail_json, "ret", default=[]))
+            if "FAIL_SYS_USER_VALIDATE" in ret_string:
+                raise RiskControlError("FAIL_SYS_USER_VALIDATE")
+
+            item_do = await safe_get(detail_json, "data", "itemDO", default={})
+            seller_do = await safe_get(detail_json, "data", "sellerDO", default={})
+            if not item_do:
+                print(f"商品 {item_id} 详情为空，可能已经下架")
+                return None
+
+            price_value = next(
+                (
+                    value
+                    for value in (
+                        item_do.get("soldPrice"),
+                        item_do.get("price"),
+                        item_do.get("finalPrice"),
+                        item_do.get("displayPrice"),
+                    )
+                    if value is not None and str(value).strip() != ""
+                ),
+                None,
+            )
+            if price_value is None:
+                price_info = item_do.get("priceInfo", {})
+                if isinstance(price_info, dict):
+                    price_value = price_info.get("price")
+                    if price_value is None:
+                        price_value = price_info.get("displayPrice")
+
+            result = {
+                "item_id": item_id,
+                "商品 ID": item_id,
+                "商品标题": item_do.get("title", ""),
+                "当前售价": price_value,
+                "商品链接": item_url,
+                "想要人数": item_do.get("wantCnt"),
+                "浏览量": item_do.get("browseCnt"),
+                "卖家 ID": seller_do.get("sellerId"),
+                "卖家昵称": seller_do.get("nick"),
+                "芝麻信用": (seller_do.get("zhimaLevelInfo") or {}).get(
+                    "levelName"
+                ),
+            }
+            image_infos = await safe_get(item_do, "imageInfos", default=[])
+            if image_infos:
+                result["商品图片列表"] = [
+                    image.get("url")
+                    for image in image_infos
+                    if isinstance(image, dict) and image.get("url")
+                ]
+            return result
+        except PlaywrightTimeoutError:
+            print(f"等待商品 {item_id} 详情 API 超时")
+            if _is_login_url(page.url):
+                raise LoginRequiredError(
+                    "商品详情页已跳转到登录页，请重新更新该租户的登录状态"
+                )
+            try:
+                page_content = await page.content()
+            except Exception:
+                page_content = ""
+            if "FAIL_SYS_USER_VALIDATE" in page_content or "验证" in page_content:
+                raise RiskControlError("FAIL_SYS_USER_VALIDATE")
+            if "立即登录" in page_content:
+                raise LoginRequiredError(
+                    "商品详情页未识别到有效登录状态，请重新登录闲鱼"
+                )
+            if "网络不见了" in page_content:
+                print("商品详情页显示网络异常，闲鱼未发起详情接口请求")
+            return None
+    finally:
+        await page.close()
+
+
 async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
     """
     通过商品 ID 精确获取商品详情
@@ -1314,7 +1403,6 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
     Returns:
         商品信息字典，如果失败则返回 None
     """
-    from src.config import DETAIL_API_URL_PATTERN
     state_file = get_state_file()
     if not os.path.exists(state_file):
         raise FileNotFoundError(f"登录状态文件不存在：{state_file}")
@@ -1357,96 +1445,7 @@ async def scrape_item_by_id(item_id: str) -> Optional[Dict]:
             )
 
             try:
-                page = await context.new_page()
-
-                # 访问商品详情页（使用正确的 URL 格式：?id=xxx）
-                item_url = f"https://www.goofish.com/item?id={item_id}"
-                # 等待详情页 API 响应
-                # 必须在导航前注册监听，否则 SPA 可能已经完成详情请求，导致固定超时。
-                try:
-                    detail_response = await _navigate_and_wait_for_detail_response(
-                        page, item_url
-                    )
-                    if not detail_response.ok:
-                        print(f"获取商品详情 API 失败：{detail_response.status}")
-                        return None
-
-                    detail_json = await detail_response.json()
-
-                    # 检查是否商品不存在
-                    ret_string = str(await safe_get(detail_json, "ret", default=[]))
-                    if "FAIL_SYS_USER_VALIDATE" in ret_string:
-                        raise RiskControlError("FAIL_SYS_USER_VALIDATE")
-
-                    item_do = await safe_get(detail_json, "data", "itemDO", default={})
-                    seller_do = await safe_get(detail_json, "data", "sellerDO", default={})
-
-                    # 调试：打印 item_do 的键
-                    # if isinstance(item_do, dict):
-                    #     print(f"DEBUG: item_do 键列表 = {list(item_do.keys())[:50]}")
-                    #     # 查找可能包含价格的字段
-                    #     for key in item_do.keys():
-                    #         if 'price' in key.lower():
-                    #             print(f"  {key}: {item_do.get(key)}")
-
-                    if not item_do:
-                        print("商品详情数据为空，可能商品已下架")
-                        return None
-
-                    # 解析商品信息
-                    # 价格字段可能在多个位置：soldPrice / price / finalPrice / displayPrice
-                    price_value = item_do.get("soldPrice") or item_do.get("price") or item_do.get("finalPrice") or item_do.get("displayPrice")
-                    if not price_value:
-                        # 尝试从 priceInfo 对象中获取
-                        price_info = item_do.get("priceInfo", {})
-                        if isinstance(price_info, dict):
-                            price_value = price_info.get("price") or price_info.get("displayPrice")
-
-                    result = {
-                        "item_id": item_id,
-                        "商品 ID": item_id,
-                        "商品标题": item_do.get("title", ""),
-                        "当前售价": price_value,
-                        "商品链接": item_url,
-                        "想要人数": item_do.get("wantCnt"),
-                        "浏览量": item_do.get("browseCnt"),
-                        "卖家 ID": seller_do.get("sellerId"),
-                        "卖家昵称": seller_do.get("nick"),
-                        "芝麻信用": seller_do.get("zhimaLevelInfo", {}).get("levelName"),
-                    }
-
-                    # 提取图片列表
-                    image_infos = await safe_get(item_do, "imageInfos", default=[])
-                    if image_infos:
-                        result["商品图片列表"] = [
-                            img.get("url") for img in image_infos if img.get("url")
-                        ]
-
-                    return result
-
-                except PlaywrightTimeoutError:
-                    print("等待商品详情 API 超时")
-                    # 尝试从页面直接获取内容作为后备
-                    try:
-                        if _is_login_url(page.url):
-                            raise LoginRequiredError(
-                                "商品详情页已跳转到登录页，请重新更新该租户的登录状态"
-                            )
-                        page_content = await page.content()
-                        if "FAIL_SYS_USER_VALIDATE" in page_content or "验证" in page_content:
-                            raise RiskControlError("FAIL_SYS_USER_VALIDATE")
-                        if "网络不见了" in page_content:
-                            print("商品详情页显示网络异常，闲鱼未发起详情接口请求")
-                        elif "立即登录" in page_content:
-                            raise LoginRequiredError(
-                                "商品详情页未识别到有效登录状态，请重新登录闲鱼"
-                            )
-                    except (RiskControlError, LoginRequiredError):
-                        raise
-                    except Exception as exc:
-                        print(f"检查商品详情页失败：{exc}")
-                    return None
-
+                return await _scrape_item_by_id_in_context(context, item_id)
             finally:
                 await browser.close()
 
@@ -1465,6 +1464,837 @@ async def _navigate_and_wait_for_detail_response(page, item_url: str) -> Respons
     ) as detail_info:
         await page.goto(item_url, wait_until="domcontentloaded", timeout=60000)
     return await detail_info.value
+
+
+def _active_store_items(cards: List[dict]) -> List[dict]:
+    """从店铺列表响应中去重并筛出仍在售的商品。"""
+    items: List[dict] = []
+    seen_item_ids: set[str] = set()
+    for card in cards:
+        card_data = card.get("cardData", {}) if isinstance(card, dict) else {}
+        item_id = str(card_data.get("id") or "").strip()
+        item_status = card_data.get("itemStatus")
+        if (
+            not item_id
+            or item_id in seen_item_ids
+            or str(item_status).strip() != "0"
+        ):
+            continue
+        seen_item_ids.add(item_id)
+        want_count = None
+        for key in ("wantCnt", "wantNum", "wantCount"):
+            if card_data.get(key) is not None:
+                want_count = card_data.get(key)
+                break
+        browse_count = None
+        for key in ("browseCnt", "browseNum", "browseCount"):
+            if card_data.get(key) is not None:
+                browse_count = card_data.get(key)
+                break
+        price_info = card_data.get("priceInfo")
+        pic_info = card_data.get("picInfo")
+        items.append(
+            {
+                "item_id": item_id,
+                "title": str(card_data.get("title") or ""),
+                "price": (
+                    price_info.get("price") if isinstance(price_info, dict) else None
+                ),
+                "image_url": (
+                    pic_info.get("picUrl") if isinstance(pic_info, dict) else None
+                ),
+                "want_count": want_count,
+                "browse_count": browse_count,
+            }
+        )
+    return items
+
+
+async def scrape_store_inventory(
+    context,
+    store_id: str,
+    *,
+    max_pages: int = 100,
+    page_timeout_seconds: int = 30,
+) -> dict:
+    """完整读取店铺基本信息和全部在售商品。
+
+    当响应声明仍有下一页却无法继续加载时直接失败，避免把半截列表当成完整
+    店铺数据并产生误导性的监控结果。
+    """
+    page = await context.new_page()
+    loop = asyncio.get_running_loop()
+    head_future = loop.create_future()
+    first_items_future = loop.create_future()
+    next_page_loaded = asyncio.Event()
+    all_cards: List[dict] = []
+    response_state = {
+        "page_count": 0,
+        "has_next_page": True,
+        "error": None,
+    }
+
+    async def handle_response(response: Response) -> None:
+        if "mtop.idle.web.user.page.head" in response.url:
+            if head_future.done():
+                return
+            try:
+                head_future.set_result(await response.json())
+            except Exception as exc:
+                head_future.set_exception(exc)
+            return
+
+        if "mtop.idle.web.xyh.item.list" not in response.url:
+            return
+        try:
+            if not response.ok:
+                raise RuntimeError(
+                    f"店铺商品列表接口 HTTP 状态异常：{response.status}"
+                )
+            payload = await response.json()
+            ret_value = payload.get("ret")
+            ret_text = str(ret_value or "")
+            if "FAIL_SYS_USER_VALIDATE" in ret_text:
+                raise RiskControlError("FAIL_SYS_USER_VALIDATE")
+            if not ret_value or "SUCCESS" not in ret_text.upper():
+                raise RuntimeError(
+                    f"店铺商品列表接口返回失败：{ret_text or '缺少 ret'}"
+                )
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                raise RuntimeError("店铺商品列表响应缺少 data 对象")
+            if "cardList" not in data:
+                raise RuntimeError("店铺商品列表响应缺少 cardList")
+            if "nextPage" not in data:
+                raise RuntimeError("店铺商品列表响应缺少 nextPage")
+            cards = data.get("cardList")
+            if not isinstance(cards, list):
+                raise RuntimeError("店铺商品列表响应格式异常：cardList 不是数组")
+            all_cards.extend(cards)
+            response_state["page_count"] = int(response_state["page_count"]) + 1
+            response_state["has_next_page"] = _as_bool(
+                data.get("nextPage"),
+                False,
+            )
+            if not first_items_future.done():
+                first_items_future.set_result(True)
+            next_page_loaded.set()
+            print(
+                "      [店铺API] 已加载 "
+                f"{response_state['page_count']} 页、{len(all_cards)} 条商品记录"
+            )
+        except Exception as exc:
+            response_state["error"] = exc
+            if not first_items_future.done():
+                first_items_future.set_exception(exc)
+            next_page_loaded.set()
+
+    page.on("response", handle_response)
+    try:
+        await page.goto(
+            f"https://www.goofish.com/personal?userId={store_id}",
+            wait_until="domcontentloaded",
+            timeout=60000,
+        )
+        if _is_login_url(page.url):
+            raise LoginRequiredError(
+                "店铺主页已跳转到登录页，请重新更新该租户的登录状态"
+            )
+
+        await asyncio.wait_for(first_items_future, timeout=page_timeout_seconds)
+        if response_state["error"]:
+            raise response_state["error"]
+
+        while response_state["has_next_page"]:
+            if int(response_state["page_count"]) >= max(1, max_pages):
+                raise RuntimeError(
+                    f"店铺商品分页超过安全上限 {max_pages} 页，未形成完整快照"
+                )
+            previous_page_count = int(response_state["page_count"])
+            next_page_loaded.clear()
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            try:
+                await asyncio.wait_for(
+                    next_page_loaded.wait(), timeout=page_timeout_seconds
+                )
+            except asyncio.TimeoutError as exc:
+                raise RuntimeError(
+                    "店铺商品分页加载超时，未形成完整快照，本轮已停止"
+                ) from exc
+            if response_state["error"]:
+                raise response_state["error"]
+            if int(response_state["page_count"]) <= previous_page_count:
+                raise RuntimeError("店铺商品分页没有前进，本轮已停止")
+
+        head_payload = None
+        if head_future.done() and not head_future.cancelled():
+            try:
+                head_payload = head_future.result()
+            except Exception:
+                head_payload = None
+        else:
+            try:
+                head_payload = await asyncio.wait_for(
+                    asyncio.shield(head_future), timeout=5
+                )
+            except Exception:
+                head_payload = None
+
+        profile = await parse_user_head_data(head_payload or {})
+        active_items = _active_store_items(all_cards)
+        return {
+            "store_id": store_id,
+            "store_name": str(profile.get("卖家昵称") or "").strip() or None,
+            "profile": profile,
+            "items": active_items,
+            "raw_item_count": len(all_cards),
+            "page_count": int(response_state["page_count"]),
+        }
+    finally:
+        page.remove_listener("response", handle_response)
+        if not head_future.done():
+            head_future.cancel()
+        if not first_items_future.done():
+            first_items_future.cancel()
+        await page.close()
+
+
+def _resolve_store_runtime(task_config: dict) -> tuple[str, Optional[str]]:
+    """按现有账号/IP 策略为一次店铺运行挑选固定会话。"""
+    settings = _get_rotation_settings(task_config)
+    account_items = load_state_files(settings["account_state_dir"])
+    runtime_plan = resolve_account_runtime_plan(
+        strategy=task_config.get("account_strategy"),
+        account_state_file=task_config.get("account_state_file"),
+        has_root_state_file=os.path.exists(get_state_file()),
+        available_account_files=account_items,
+    )
+    forced_account = runtime_plan["forced_account"]
+    if forced_account:
+        state_path = str(forced_account)
+    elif runtime_plan["prefer_root_state"]:
+        state_path = get_state_file()
+    elif runtime_plan["use_account_pool"]:
+        selected = RotationPool(
+            account_items,
+            settings["account_blacklist_ttl"],
+            "account",
+        ).pick_random()
+        if not selected:
+            raise FileNotFoundError("未找到可用的登录状态文件，无法执行店铺任务")
+        state_path = selected.value
+    else:
+        state_path = get_state_file()
+
+    if not state_path or not os.path.exists(state_path):
+        raise FileNotFoundError(f"登录状态文件不存在：{state_path}")
+
+    proxy_server: Optional[str] = None
+    if settings["proxy_enabled"]:
+        selected_proxy = RotationPool(
+            parse_proxy_pool(settings["proxy_pool"]),
+            settings["proxy_blacklist_ttl"],
+            "proxy",
+        ).pick_random()
+        if not selected_proxy:
+            raise RuntimeError("未找到可用的代理地址，无法执行店铺任务")
+        proxy_server = selected_proxy.value
+    return state_path, proxy_server
+
+
+def _load_context_state(state_path: str) -> tuple[object, dict]:
+    """读取普通 Playwright storage state 或增强浏览器快照。"""
+    snapshot_data = None
+    try:
+        with open(state_path, "r", encoding="utf-8") as state_file:
+            snapshot_data = json.load(state_file)
+    except Exception as exc:
+        print(f"警告：读取登录状态文件失败，将直接按路径使用：{exc}")
+
+    storage_state: object = state_path
+    context_options = _default_context_options()
+    if isinstance(snapshot_data, dict):
+        if any(
+            key in snapshot_data for key in ("env", "headers", "page", "storage")
+        ):
+            storage_state = {"cookies": snapshot_data.get("cookies", [])}
+            context_options.update(_build_context_overrides(snapshot_data))
+            extra_headers = _build_extra_headers(snapshot_data.get("headers"))
+            if extra_headers:
+                context_options["extra_http_headers"] = extra_headers
+        else:
+            storage_state = snapshot_data
+    return storage_state, _clean_kwargs(context_options)
+
+
+def _persist_discovered_store_name(
+    *,
+    task_name: str,
+    store_id: str,
+    store_name: Optional[str],
+) -> None:
+    """首次发现店铺名称后回填任务，保留用户手工设置的名称。"""
+    if not store_name:
+        return
+    try:
+        from src.infrastructure.persistence.sqlite_connection import sqlite_connection
+
+        with sqlite_connection() as connection:
+            connection.execute(
+                """
+                UPDATE tasks
+                SET store_name = ?
+                WHERE task_name = ?
+                  AND task_type = 'store'
+                  AND store_id = ?
+                  AND (store_name IS NULL OR TRIM(store_name) = '')
+                """,
+                (store_name, task_name, store_id),
+            )
+            connection.commit()
+    except Exception as exc:
+        print(f"回填店铺名称失败，本轮继续使用已发现名称：{exc}")
+
+
+def _inspect_store_monitor_items(
+    *,
+    task_name: str,
+    items: List[dict],
+) -> dict:
+    """只读计算完整店铺快照的成员变化。
+
+    真正的 active/inactive 写入由 ``persist_store_run`` 与指标、
+    通知 outbox 在同一事务中完成，避免进程中断丢失上下架事件。
+    """
+    from src.infrastructure.persistence.sqlite_bootstrap import bootstrap_sqlite_storage
+    from src.infrastructure.persistence.sqlite_connection import sqlite_connection
+
+    bootstrap_sqlite_storage()
+    with sqlite_connection() as connection:
+        previous_rows = connection.execute(
+            """
+            SELECT item_id, title, is_active
+            FROM store_monitor_items
+            WHERE task_name = ?
+            """,
+            (task_name,),
+        ).fetchall()
+        previous_active = {
+            str(row["item_id"]): str(row["title"] or "")
+            for row in previous_rows
+            if bool(row["is_active"])
+        }
+        current_items = {
+            str(item.get("item_id") or "").strip(): str(item.get("title") or "")
+            for item in items
+            if str(item.get("item_id") or "").strip()
+        }
+    added_item_ids = set(current_items) - set(previous_active)
+    removed_item_ids = set(previous_active) - set(current_items)
+    return {
+        "is_first_inventory": not previous_rows,
+        "added_items": [
+            {"item_id": item_id, "title": current_items[item_id]}
+            for item_id in sorted(added_item_ids)
+        ],
+        "removed_items": [
+            {"item_id": item_id, "title": previous_active[item_id]}
+            for item_id in sorted(removed_item_ids)
+        ],
+    }
+
+
+async def _install_store_context_guards(context) -> None:
+    await context.add_init_script(
+        """
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en-US', 'en']});
+        window.chrome = {runtime: {}, loadTimes: function() {}, csi: function() {}};
+        Object.defineProperty(navigator, 'maxTouchPoints', {get: () => 5});
+        """
+    )
+
+
+async def _queue_and_deliver_store_notifications(
+    *,
+    notification_service,
+    task_name: str,
+    event_key: str,
+    digest,
+) -> List[str]:
+    """持久化当前摘要并重试该店铺之前未成功的通知渠道。"""
+    from src.services.store_notification_outbox import (
+        enqueue_store_digest,
+        list_pending_store_digests,
+        update_store_digest_delivery,
+    )
+
+    if digest is not None:
+        enqueue_store_digest(
+            event_key=event_key,
+            digest=digest,
+            channel_keys=notification_service.enabled_channel_keys(),
+        )
+
+    all_failed_channels: set[str] = set()
+    for pending in list_pending_store_digests(task_name=task_name):
+        results = await notification_service.send_store_digest(
+            pending.digest,
+            channel_keys=pending.pending_channels,
+        )
+        failed_channels = []
+        error_messages = []
+        for channel in pending.pending_channels:
+            channel_result = results.get(channel)
+            if channel_result and channel_result.get("success"):
+                continue
+            failed_channels.append(channel)
+            if channel_result and channel_result.get("message"):
+                error_messages.append(
+                    f"{channel}: {channel_result.get('message')}"
+                )
+            else:
+                error_messages.append(f"{channel}: 当前未启用或无发送结果")
+        update_store_digest_delivery(
+            record_id=pending.id,
+            failed_channels=failed_channels,
+            last_error="; ".join(error_messages) or None,
+        )
+        all_failed_channels.update(failed_channels)
+    return sorted(all_failed_channels)
+
+
+async def scrape_store_by_id(
+    store_id: str,
+    task_config: dict,
+    debug_limit: int = 0,
+) -> dict:
+    """按店铺维度发现全部在售商品、记录指标并发送一条聚合通知。"""
+    from src.domain.models.store_monitoring import (
+        StoreItemChange,
+        StoreItemLifecycle,
+        StoreMonitoringDigest,
+    )
+    from src.services.metrics_tracking_service import get_metrics_service
+    from src.services.store_notification_outbox import persist_store_run
+
+    normalized_store_id = str(store_id or "").strip()
+    if not normalized_store_id:
+        raise ValueError("店铺 ID 不能为空")
+
+    task_name = str(task_config.get("task_name") or f"店铺 {normalized_store_id}")
+    configured_store_name = str(task_config.get("store_name") or "").strip() or None
+    keyword = str(task_config.get("keyword") or f"store_{normalized_store_id}")
+    run_id = f"store_{normalized_store_id}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    state_path = ""
+
+    try:
+        state_path, proxy_server = _resolve_store_runtime(task_config)
+        storage_state, context_options = _load_context_state(state_path)
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+        ]
+        launch_options = {
+            "headless": RUN_HEADLESS,
+            "args": launch_args,
+            "channel": _resolve_browser_channel(),
+        }
+        if proxy_server:
+            launch_options["proxy"] = {"server": proxy_server}
+
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(**launch_options)
+            try:
+                context = await browser.new_context(
+                    storage_state=storage_state,
+                    **context_options,
+                )
+                await _install_store_context_guards(context)
+
+                warmup_page = await context.new_page()
+                try:
+                    await warmup_page.goto(
+                        "https://www.goofish.com/",
+                        wait_until="domcontentloaded",
+                        timeout=30000,
+                    )
+                    await random_sleep(1, 3)
+                    await warmup_page.evaluate(
+                        "window.scrollBy(0, Math.random() * 400 + 150)"
+                    )
+                    await random_sleep(1, 2)
+                finally:
+                    await warmup_page.close()
+
+                inventory = await scrape_store_inventory(
+                    context,
+                    normalized_store_id,
+                    max_pages=max(
+                        1,
+                        _as_int(os.getenv("STORE_INVENTORY_MAX_PAGES"), 100),
+                    ),
+                    page_timeout_seconds=max(
+                        5,
+                        _as_int(os.getenv("STORE_PAGE_TIMEOUT_SECONDS"), 30),
+                    ),
+                )
+                store_name = configured_store_name or inventory.get("store_name")
+                if not configured_store_name:
+                    _persist_discovered_store_name(
+                        task_name=task_name,
+                        store_id=normalized_store_id,
+                        store_name=store_name,
+                    )
+                inventory_items = list(inventory.get("items") or [])
+                membership_changes = _inspect_store_monitor_items(
+                    task_name=task_name,
+                    items=inventory_items,
+                )
+                store_items = inventory_items
+                if debug_limit > 0:
+                    store_items = store_items[:debug_limit]
+
+                print(
+                    f"店铺监控组 '{task_name}' 发现 {len(store_items)} 件在售商品，"
+                    "开始顺序采集详情。"
+                )
+                delay_min = max(
+                    0,
+                    _as_int(os.getenv("STORE_ITEM_DELAY_MIN_SECONDS"), 8),
+                )
+                delay_max = max(
+                    delay_min,
+                    _as_int(os.getenv("STORE_ITEM_DELAY_MAX_SECONDS"), 15),
+                )
+                detail_max_attempts = max(
+                    1,
+                    _as_int(os.getenv("STORE_ITEM_DETAIL_MAX_ATTEMPTS"), 2),
+                )
+                metrics_service = get_metrics_service()
+                metric_changes = []
+                metric_observations: List[dict] = []
+                succeeded_count = 0
+                failed_item_ids: List[str] = []
+                first_seen_count = 0
+                seen_snapshot_ids: set[str] = set()
+                detail_request_count = 0
+
+                for item_index, store_item in enumerate(store_items):
+                    item_id = str(store_item.get("item_id") or "")
+                    print(
+                        f"   [{item_index + 1}/{len(store_items)}] 采集店铺商品 {item_id}"
+                    )
+                    raw_list_want_count = store_item.get("want_count")
+                    list_want_count = parse_metric_count(raw_list_want_count)
+                    if (
+                        list_want_count is not None
+                        # “1.2万”等展示值已被四舍五入，不能用作精确变化
+                        # 基线；这类情况继续访问详情接口。
+                        and "万" not in str(raw_list_want_count)
+                        and store_item.get("price") is not None
+                    ):
+                        # 若店铺列表接口已直接给出指标，则无需再打开详情页。这一
+                        # 兼容路径会自动降低请求量；字段缺失时仍回退到详情接口。
+                        item_result = {
+                            "item_id": item_id,
+                            "商品 ID": item_id,
+                            "商品标题": store_item.get("title"),
+                            "当前售价": store_item.get("price"),
+                            "商品链接": f"https://www.goofish.com/item?id={item_id}",
+                            "想要人数": store_item.get("want_count"),
+                            "浏览量": store_item.get("browse_count"),
+                            "卖家 ID": normalized_store_id,
+                            "卖家昵称": store_name,
+                            "商品图片列表": (
+                                [store_item["image_url"]]
+                                if store_item.get("image_url")
+                                else []
+                            ),
+                        }
+                        print("      店铺列表已包含想要数，跳过详情页请求")
+                    else:
+                        item_result = None
+                        for detail_attempt in range(1, detail_max_attempts + 1):
+                            if detail_request_count > 0 and delay_max > 0:
+                                await random_sleep(delay_min, delay_max)
+                            try:
+                                item_result = await _scrape_item_by_id_in_context(
+                                    context, item_id
+                                )
+                            except (RiskControlError, LoginRequiredError):
+                                # 风控和登录失效必须立即终止整轮，避免继续请求扩大封控。
+                                raise
+                            except Exception as exc:
+                                # 单个详情页的瞬时 JSON/网络异常不应立即放弃
+                                # 整家店；按同样的保守节奏做有限重试。
+                                print(
+                                    f"      商品 {item_id} 详情请求异常："
+                                    f"{type(exc).__name__}: {exc}"
+                                )
+                                item_result = None
+                            detail_request_count += 1
+                            if item_result and parse_metric_count(
+                                item_result.get("想要人数")
+                            ) is not None:
+                                break
+                            if item_result:
+                                print(
+                                    f"      商品 {item_id} 详情缺少有效想要数，"
+                                    "本次不作为成功快照"
+                                )
+                                item_result = None
+                            if detail_attempt < detail_max_attempts:
+                                print(
+                                    f"      商品 {item_id} 详情采集失败，"
+                                    f"将在保守退避后重试 "
+                                    f"({detail_attempt + 1}/{detail_max_attempts})"
+                                )
+                    if not item_result:
+                        failed_item_ids.append(item_id)
+                        continue
+                    seller_id = str(item_result.get("卖家 ID") or "").strip()
+                    if seller_id and seller_id != normalized_store_id:
+                        print(
+                            f"   商品 {item_id} 卖家 ID 为 {seller_id}，"
+                            f"与店铺 {normalized_store_id} 不一致，已跳过"
+                        )
+                        failed_item_ids.append(item_id)
+                        continue
+
+                    item_data = {
+                        "商品 ID": item_id,
+                        "商品标题": item_result.get("商品标题")
+                        or store_item.get("title")
+                        or "",
+                        "当前售价": item_result.get("当前售价"),
+                        "商品链接": item_result.get("商品链接"),
+                        "想要人数": item_result.get("想要人数"),
+                        "浏览量": item_result.get("浏览量"),
+                        "卖家 ID": item_result.get("卖家 ID"),
+                        "卖家昵称": item_result.get("卖家昵称") or store_name,
+                        "芝麻信用": item_result.get("芝麻信用"),
+                        "商品图片列表": item_result.get("商品图片列表", []),
+                        "发布时间": None,
+                    }
+                    price_value = parse_price_value(item_data.get("当前售价"))
+                    want_count = parse_metric_count(item_data.get("想要人数"))
+                    browse_count = parse_metric_count(item_data.get("浏览量"))
+                    previous = metrics_service.get_last_snapshot(
+                        item_id,
+                        task_name=task_name,
+                    )
+                    change = metrics_service.compare_with_latest(
+                        item_id=item_id,
+                        current_price=price_value,
+                        current_price_display=(
+                            str(item_data.get("当前售价"))
+                            if item_data.get("当前售价") is not None
+                            else None
+                        ),
+                        current_want_count=want_count,
+                        want_count_threshold=1,
+                        task_name=task_name,
+                    )
+                    if change:
+                        if change.get("price_change_display"):
+                            item_data["price_change_display"] = change[
+                                "price_change_display"
+                            ]
+                        if change.get("want_count_change_display"):
+                            item_data["want_count_change_display"] = change[
+                                "want_count_change_display"
+                            ]
+
+                    snapshot_time = datetime.now().isoformat()
+                    final_record = {
+                        "搜索关键字": keyword,
+                        "任务名称": task_name,
+                        "监控店铺 ID": normalized_store_id,
+                        "监控店铺名称": store_name,
+                        "爬取时间": snapshot_time,
+                        "商品信息": item_data,
+                        "卖家信息": {
+                            "卖家 ID": item_result.get("卖家 ID"),
+                            "卖家昵称": item_result.get("卖家昵称") or store_name,
+                        },
+                        "match_result": {
+                            "analysis_source": "store",
+                            "is_recommended": True,
+                            "reason": "店铺监控组在售商品",
+                            "keyword_hit_count": 1,
+                            "matched_keywords": [normalized_store_id],
+                        },
+                    }
+                    result_saved = await save_to_jsonl(final_record, keyword)
+                    if not result_saved:
+                        print(f"   商品 {item_id} 结果记录写入失败，本项标记为失败")
+                        failed_item_ids.append(item_id)
+                        continue
+                    try:
+                        record_market_snapshots(
+                            keyword=keyword,
+                            task_name=task_name,
+                            items=[item_data],
+                            run_id=run_id,
+                            snapshot_time=snapshot_time,
+                            seen_item_ids=seen_snapshot_ids,
+                        )
+                    except Exception as exc:
+                        print(
+                            f"   商品 {item_id} 价格快照写入失败，本项标记为失败：{exc}"
+                        )
+                        failed_item_ids.append(item_id)
+                        continue
+                    metric_observations.append(
+                        {
+                            "task_name": task_name,
+                            "item_id": item_id,
+                            "title": str(item_data.get("商品标题") or "")[:200],
+                            "snapshot_time": snapshot_time,
+                            "price": price_value,
+                            "price_display": (
+                                str(item_data.get("当前售价"))
+                                if item_data.get("当前售价") is not None
+                                else None
+                            ),
+                            "want_count": want_count,
+                            "browse_count": browse_count,
+                            "seller_id": seller_id or None,
+                            "link": item_data.get("商品链接"),
+                        }
+                    )
+                    succeeded_count += 1
+
+                    if previous is None:
+                        first_seen_count += 1
+                    if previous is None or change:
+                        metric_changes.append(
+                            StoreItemChange(
+                                item_id=item_id,
+                                title=str(item_data.get("商品标题") or ""),
+                                previous_want_count=(
+                                    previous.get("want_count") if previous else None
+                                ),
+                                current_want_count=want_count,
+                                want_count_delta=(
+                                    want_count - int(previous["want_count"])
+                                    if previous
+                                    and previous.get("want_count") is not None
+                                    and want_count is not None
+                                    else None
+                                ),
+                                previous_price=(
+                                    previous.get("price") if previous else None
+                                ),
+                                current_price=price_value,
+                                link=item_data.get("商品链接"),
+                            )
+                        )
+
+                failed_count = len(store_items) - succeeded_count
+                is_initial_snapshot = (
+                    succeeded_count > 0 and first_seen_count == succeeded_count
+                )
+                digest = StoreMonitoringDigest(
+                    store_id=normalized_store_id,
+                    task_name=task_name,
+                    discovered_count=len(store_items),
+                    succeeded_count=succeeded_count,
+                    failed_count=failed_count,
+                    changes=tuple(metric_changes),
+                    added_items=(
+                        tuple()
+                        if membership_changes["is_first_inventory"]
+                        else tuple(
+                            StoreItemLifecycle(
+                                item_id=item["item_id"],
+                                title=item["title"],
+                                link=(
+                                    f"https://www.goofish.com/item?id={item['item_id']}"
+                                ),
+                            )
+                            for item in membership_changes["added_items"]
+                        )
+                    ),
+                    removed_items=tuple(
+                        StoreItemLifecycle(
+                            item_id=item["item_id"],
+                            title=item["title"],
+                            link=(
+                                f"https://www.goofish.com/item?id={item['item_id']}"
+                            ),
+                        )
+                        for item in membership_changes["removed_items"]
+                    ),
+                    store_name=store_name,
+                    is_initial_snapshot=is_initial_snapshot,
+                )
+                should_notify = bool(
+                    metric_changes
+                    or digest.added_items
+                    or digest.removed_items
+                    or failed_count > 0
+                )
+                notification_service = build_notification_service()
+                persist_store_run(
+                    metric_observations=metric_observations,
+                    event_key=run_id,
+                    digest=digest if should_notify else None,
+                    channel_keys=notification_service.enabled_channel_keys(),
+                    store_membership={
+                        "task_name": task_name,
+                        "store_id": normalized_store_id,
+                        # 成员必须使用未被 debug_limit 截断的完整库存。
+                        "items": inventory_items,
+                    },
+                )
+                failed_channels = await _queue_and_deliver_store_notifications(
+                    notification_service=notification_service,
+                    task_name=task_name,
+                    event_key=run_id,
+                    digest=None,
+                )
+                if should_notify:
+                    if failed_channels:
+                        print(
+                            "店铺汇总通知发送失败，摘要已进入待发队列："
+                            + ", ".join(failed_channels)
+                        )
+                else:
+                    print("本轮店铺商品指标无变化，不发送重复通知。")
+
+                if failed_count > 0:
+                    raise RuntimeError(
+                        f"店铺监控部分失败：成功 {succeeded_count}/"
+                        f"{len(store_items)}，失败商品："
+                        f"{', '.join(failed_item_ids) or '未知'}"
+                    )
+
+                FAILURE_GUARD.record_success(task_name)
+                print(
+                    f"店铺监控完成：成功 {succeeded_count}/{len(store_items)}，"
+                    f"变化或新纳入 {len(metric_changes)} 件。"
+                )
+                return {
+                    "processed_count": succeeded_count,
+                    "discovered_count": len(store_items),
+                    "failed_count": failed_count,
+                    "changed_count": len(metric_changes),
+                    "store_name": store_name,
+                }
+            finally:
+                await browser.close()
+    except Exception as exc:
+        await _notify_task_failure(
+            task_config,
+            str(exc),
+            cookie_path=state_path or None,
+        )
+        raise
 
 
 async def scrape_items_by_id_batch(

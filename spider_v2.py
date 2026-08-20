@@ -9,11 +9,13 @@ import re
 from datetime import datetime as dt
 
 from src.config import get_state_file
+from src.domain.models.task import normalize_store_id
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src import scraper as scraper_module
 
 scrape_xianyu = scraper_module.scrape_xianyu
 scrape_items_by_id_batch = getattr(scraper_module, "scrape_items_by_id_batch", None)
+scrape_store_by_id = getattr(scraper_module, "scrape_store_by_id", None)
 
 
 async def main():
@@ -110,6 +112,8 @@ async def main():
         normalized_rules = normalize_keywords(keyword_rules)
         if task_type == "item_id":
             normalized_rules = normalize_keywords(task.get("item_id_list"))
+        elif task_type == "store":
+            normalized_rules = []
         elif not normalized_rules and task.get("keyword"):
             normalized_rules = [str(task["keyword"]).strip()]
         task["keyword_rules"] = normalized_rules
@@ -156,6 +160,7 @@ async def main():
             pass
 
     tasks = []
+    queued_task_configs = []
     for task_conf in active_task_configs:
         task_type = task_conf.get("task_type", "keyword")
         if task_type == "item_id":
@@ -174,10 +179,38 @@ async def main():
                     )
                 )
             )
+            queued_task_configs.append(task_conf)
+        elif task_type == "store":
+            print(
+                f"-> 任务 '{task_conf['task_name']}' 已加入执行队列 "
+                "(店铺监控组模式)。"
+            )
+            try:
+                store_id = normalize_store_id(task_conf.get("store_id"))
+            except ValueError as exc:
+                print(f"   警告：任务 '{task_conf['task_name']}' 店铺 ID 无效：{exc}")
+                continue
+            if not store_id or scrape_store_by_id is None:
+                print(
+                    f"   警告：任务 '{task_conf['task_name']}' 未配置有效 store_id，跳过。"
+                )
+                continue
+            task_conf["store_id"] = store_id
+            tasks.append(
+                asyncio.create_task(
+                    scrape_store_by_id(
+                        store_id=store_id,
+                        task_config=task_conf,
+                        debug_limit=args.debug_limit,
+                    )
+                )
+            )
+            queued_task_configs.append(task_conf)
         else:
             # 关键词搜索任务
             print(f"-> 任务 '{task_conf['task_name']}' 已加入执行队列。")
             tasks.append(asyncio.create_task(scrape_xianyu(task_config=task_conf, debug_limit=args.debug_limit)))
+            queued_task_configs.append(task_conf)
 
     async def _shutdown_watcher():
         await stop_event.wait()
@@ -197,18 +230,10 @@ async def main():
             await shutdown_task
 
     print("\n--- 所有任务执行完毕 ---")
-    executed_index = 0
     task_failures = []
-    for i, task_conf in enumerate(active_task_configs):
+    for task_conf, result in zip(queued_task_configs, results):
         task_type = task_conf.get("task_type", "keyword")
         task_name = task_conf["task_name"]
-
-        # 跳过未实际执行的任务（如 item_id 列表为空）
-        if task_type == "item_id" and not task_conf.get("item_id_list", []):
-            continue
-
-        result = results[executed_index] if executed_index < len(results) else None
-        executed_index += 1
 
         if isinstance(result, Exception):
             print(f"任务 '{task_name}' 因异常而终止：{result}")
@@ -243,6 +268,14 @@ async def main():
                 if price_diff is not None and price_diff != 0:
                     price_sign = "+" if price_diff > 0 else ""
                     print(f"价格变化：¥{price_sign}{price_diff}")
+            elif task_type == "store":
+                summary = result if isinstance(result, dict) else {}
+                print(
+                    f"任务 '{task_name}' 正常结束，店铺在售商品 "
+                    f"{summary.get('discovered_count', 0)} 件，成功采集 "
+                    f"{summary.get('processed_count', 0)} 件，变化或新纳入 "
+                    f"{summary.get('changed_count', 0)} 件。"
+                )
             else:
                 print(f"任务 '{task_name}' 正常结束，本次运行共处理了 {result} 个新商品。")
 

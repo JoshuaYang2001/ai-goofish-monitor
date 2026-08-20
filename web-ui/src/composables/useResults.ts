@@ -192,6 +192,19 @@ export function useResults() {
     }
   })
 
+  on('task_failed', async (data: { task_id: number; task_name: string; items_count: number; returncode?: number | null }) => {
+    toast({
+      title: '任务运行失败',
+      description: `任务 "${data.task_name}" 未完整执行，请查看运行日志；本轮已成功保存 ${data.items_count || 0} 个商品。`,
+      variant: 'destructive',
+    })
+    await fetchFiles()
+    if (files.value.length > 0) {
+      await fetchResults()
+      await fetchInsights()
+    }
+  })
+
   async function refreshResults() {
     const current = selectedFile.value
     await fetchFiles()

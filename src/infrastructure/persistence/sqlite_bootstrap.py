@@ -67,6 +67,8 @@ def _migrate_tasks_schema(conn) -> None:
         "enabled",
         "keyword",
         "item_id_list_json",
+        "store_id",
+        "store_name",
         "max_pages",
         "personal_only",
         "min_price",
@@ -97,6 +99,8 @@ def _migrate_tasks_schema(conn) -> None:
             enabled INTEGER NOT NULL,
             keyword TEXT,
             item_id_list_json TEXT NOT NULL DEFAULT '[]',
+            store_id TEXT,
+            store_name TEXT,
             max_pages INTEGER NOT NULL,
             personal_only INTEGER NOT NULL,
             min_price TEXT,
@@ -120,6 +124,8 @@ def _migrate_tasks_schema(conn) -> None:
         select_value("enabled", "1"),
         select_value("keyword", "''"),
         select_value("item_id_list_json", "'[]'"),
+        select_value("store_id", "NULL"),
+        select_value("store_name", "NULL"),
         select_value("max_pages", "3"),
         select_value("personal_only", "1"),
         select_value("min_price", "NULL"),
@@ -137,7 +143,7 @@ def _migrate_tasks_schema(conn) -> None:
     conn.execute(
         """
         INSERT INTO tasks (
-            id, task_name, task_type, enabled, keyword, item_id_list_json,
+            id, task_name, task_type, enabled, keyword, item_id_list_json, store_id, store_name,
             max_pages, personal_only, min_price, max_price, cron,
             account_state_file, account_strategy, free_shipping,
             new_publish_option, region, keyword_rules_json, is_running, is_paused
@@ -272,11 +278,11 @@ def _import_tasks_if_needed(conn, legacy_config_file: str | None) -> None:
         conn.execute(
             """
             INSERT INTO tasks (
-                id, task_name, task_type, enabled, keyword, item_id_list_json,
+                id, task_name, task_type, enabled, keyword, item_id_list_json, store_id, store_name,
                 max_pages, personal_only, min_price, max_price, cron, account_state_file,
                 account_strategy, free_shipping, new_publish_option, region,
                 keyword_rules_json, is_running
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 index,
@@ -285,6 +291,8 @@ def _import_tasks_if_needed(conn, legacy_config_file: str | None) -> None:
                 _as_int(raw_task.get("enabled", True)),
                 keyword,
                 json.dumps(item_id_list, ensure_ascii=False),
+                raw_task.get("store_id"),
+                raw_task.get("store_name"),
                 int(raw_task.get("max_pages", 1) or 1),
                 _as_int(raw_task.get("personal_only", False)),
                 raw_task.get("min_price"),

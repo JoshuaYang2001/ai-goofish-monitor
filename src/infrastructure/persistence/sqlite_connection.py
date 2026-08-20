@@ -31,6 +31,8 @@ SCHEMA_STATEMENTS = (
         enabled INTEGER NOT NULL,
         keyword TEXT,
         item_id_list_json TEXT NOT NULL DEFAULT '[]',
+        store_id TEXT,
+        store_name TEXT,
         max_pages INTEGER NOT NULL,
         personal_only INTEGER NOT NULL,
         min_price TEXT,
@@ -153,6 +155,40 @@ SCHEMA_STATEMENTS = (
     """,
     """
     CREATE INDEX IF NOT EXISTS idx_metrics_seller_time ON item_metrics_history(seller_id, snapshot_time DESC)
+    """,
+    # ===== 店铺监控组当前成员 =====
+    """
+    CREATE TABLE IF NOT EXISTS store_monitor_items (
+        task_name TEXT NOT NULL,
+        store_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        title TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        PRIMARY KEY (task_name, item_id)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_store_monitor_items_active
+    ON store_monitor_items(task_name, is_active, item_id)
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS store_notification_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_key TEXT NOT NULL UNIQUE,
+        task_name TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        pending_channels_json TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_store_notification_outbox_task
+    ON store_notification_outbox(task_name, created_at ASC)
     """,
     # ===== 新增表：卖家黑名单/白名单 =====
     """

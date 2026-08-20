@@ -203,19 +203,40 @@ class MetricsTrackingService:
                 "is_increasing": change > 0,
             }
 
-    def get_last_snapshot(self, item_id: str) -> Optional[Dict]:
-        """获取最新的指标快照"""
+    def get_last_snapshot(
+        self,
+        item_id: str,
+        *,
+        task_name: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """获取最新的指标快照。
+
+        ``task_name`` 用来隔离同一商品在不同监控任务中的基线。旧调用方不传时
+        仍保持按商品查询的兼容行为。
+        """
         with sqlite_connection() as conn:
-            cursor = conn.execute(
-                """
-                SELECT price, price_display, want_count, browse_count, snapshot_time
-                FROM item_metrics_history
-                WHERE item_id = ?
-                ORDER BY snapshot_time DESC
-                LIMIT 1
-                """,
-                (item_id,),
-            )
+            if task_name is None:
+                cursor = conn.execute(
+                    """
+                    SELECT price, price_display, want_count, browse_count, snapshot_time
+                    FROM item_metrics_history
+                    WHERE item_id = ?
+                    ORDER BY snapshot_time DESC
+                    LIMIT 1
+                    """,
+                    (item_id,),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT price, price_display, want_count, browse_count, snapshot_time
+                    FROM item_metrics_history
+                    WHERE item_id = ? AND task_name = ?
+                    ORDER BY snapshot_time DESC
+                    LIMIT 1
+                    """,
+                    (item_id, task_name),
+                )
             row = cursor.fetchone()
             if row:
                 return {
@@ -248,9 +269,17 @@ class MetricsTrackingService:
         with sqlite_connection() as conn:
             current_task_rows = conn.execute(
                 """
-                SELECT DISTINCT task_name
+                SELECT DISTINCT task_name, task_type
                 FROM tasks
                 WHERE TRIM(task_name) <> ''
+                """
+            ).fetchall()
+
+            active_store_item_rows = conn.execute(
+                """
+                SELECT task_name, item_id
+                FROM store_monitor_items
+                WHERE is_active = 1
                 """
             ).fetchall()
 
@@ -272,9 +301,14 @@ class MetricsTrackingService:
                 """
             ).fetchall()
 
-        current_task_names = {
-            str(row["task_name"])
+        current_task_types = {
+            str(row["task_name"]): str(row["task_type"] or "keyword")
             for row in current_task_rows
+        }
+        current_task_names = set(current_task_types)
+        active_store_items = {
+            (str(row["task_name"]), str(row["item_id"]))
+            for row in active_store_item_rows
         }
         tasks_by_item: Dict[str, set[str]] = {}
         for row in task_rows:
@@ -296,6 +330,11 @@ class MetricsTrackingService:
                 candidate_tasks = sorted(tasks_by_item.get(item_id, set()))
             for candidate_task in candidate_tasks:
                 if task_name and candidate_task != task_name:
+                    continue
+                if (
+                    current_task_types.get(candidate_task) == "store"
+                    and (candidate_task, item_id) not in active_store_items
+                ):
                     continue
                 histories.setdefault((candidate_task, item_id), []).append(dict(row))
 
@@ -624,6 +663,8 @@ class MetricsTrackingService:
         current_price_display: Optional[str],
         current_want_count: Optional[int],
         want_count_threshold: int = 1,
+        *,
+        task_name: Optional[str] = None,
     ) -> Optional[Dict]:
         """
         将当前值与数据库最新记录比较，返回变化信息（用于通知推送）
@@ -637,17 +678,30 @@ class MetricsTrackingService:
             包含变化显示的字典，无历史记录或无变化时返回 None
         """
         with sqlite_connection() as conn:
-            # 获取最新一条记录作为"上次"的值
-            cursor = conn.execute(
-                """
-                SELECT price, price_display, want_count, snapshot_time
-                FROM item_metrics_history
-                WHERE item_id = ?
-                ORDER BY snapshot_time DESC
-                LIMIT 1
-                """,
-                (item_id,),
-            )
+            # 获取同一任务内最新一条记录作为“上次”的值，避免同一商品被多个
+            # 任务监控时互相串基线。未传 task_name 的旧调用仍按商品查询。
+            if task_name is None:
+                cursor = conn.execute(
+                    """
+                    SELECT price, price_display, want_count, snapshot_time
+                    FROM item_metrics_history
+                    WHERE item_id = ?
+                    ORDER BY snapshot_time DESC
+                    LIMIT 1
+                    """,
+                    (item_id,),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT price, price_display, want_count, snapshot_time
+                    FROM item_metrics_history
+                    WHERE item_id = ? AND task_name = ?
+                    ORDER BY snapshot_time DESC
+                    LIMIT 1
+                    """,
+                    (item_id, task_name),
+                )
             row = cursor.fetchone()
 
             if row is None:
@@ -661,6 +715,9 @@ class MetricsTrackingService:
             if current_price is not None and previous_price is not None:
                 price_diff = current_price - previous_price
                 if price_diff != 0:
+                    result["previous_price"] = previous_price
+                    result["current_price"] = current_price
+                    result["price_change_amount"] = round(price_diff, 2)
                     display = current_price_display or f"{current_price:.2f}"
                     if price_diff > 0:
                         result["price_change_display"] = f"↑ {price_diff:.2f} ({display})"
@@ -671,7 +728,11 @@ class MetricsTrackingService:
             previous_want = row["want_count"]
             if current_want_count is not None and previous_want is not None:
                 want_diff = current_want_count - previous_want
-                if abs(want_diff) > want_count_threshold:
+                normalized_threshold = max(1, int(want_count_threshold))
+                if abs(want_diff) >= normalized_threshold:
+                    result["previous_want_count"] = previous_want
+                    result["current_want_count"] = current_want_count
+                    result["want_count_change_amount"] = want_diff
                     if want_diff > 0:
                         result["want_count_change_display"] = f"↑ {want_diff} ({current_want_count}想要)"
                     else:

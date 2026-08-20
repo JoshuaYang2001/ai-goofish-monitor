@@ -27,7 +27,8 @@ import {
   RefreshCcw,
   Search,
   Pause,
-  PlayCircle
+  PlayCircle,
+  Store,
 } from 'lucide-vue-next'
 import { formatCountdown, formatNextRunAbsolute } from '@/lib/taskSchedule'
 
@@ -41,6 +42,25 @@ const props = defineProps<Props>()
 const { t } = useI18n()
 const isStopping = (id: number) => props.stoppingIds?.has(id) ?? false
 const isItemIdTask = (task: Task) => task.task_type === 'item_id'
+const isStoreTask = (task: Task) => task.task_type === 'store'
+
+const resolveTaskTypeIcon = (task: Task) => {
+  if (isStoreTask(task)) return Store
+  if (isItemIdTask(task)) return Hash
+  return Keyboard
+}
+
+const resolveTaskTypeLabel = (task: Task) => {
+  if (isStoreTask(task)) return t('tasks.table.storeGroupType')
+  if (isItemIdTask(task)) return 'ID DIRECT'
+  return 'KEYWORD'
+}
+
+const resolveTaskTypeClass = (task: Task) => {
+  if (isStoreTask(task)) return 'bg-emerald-50 text-emerald-600'
+  if (isItemIdTask(task)) return 'bg-violet-50 text-violet-600'
+  return 'bg-blue-50 text-blue-500'
+}
 const nowMs = ref(Date.now())
 let timer: number | null = null
 
@@ -184,15 +204,22 @@ const emit = defineEmits<{
                     variant="outline" 
                     :class="[
                       'h-4 px-1.5 text-[9px] font-black border-none tracking-tighter', 
-                      isItemIdTask(task) ? 'bg-violet-50 text-violet-600' : 'bg-blue-50 text-blue-500'
+                      resolveTaskTypeClass(task)
                     ]"
                   >
-                    <component :is="isItemIdTask(task) ? Hash : Keyboard" class="w-2.5 h-2.5 mr-1" />
-                    {{ isItemIdTask(task) ? 'ID DIRECT' : 'KEYWORD' }}
+                    <component :is="resolveTaskTypeIcon(task)" class="w-2.5 h-2.5 mr-1" />
+                    {{ resolveTaskTypeLabel(task) }}
                   </Badge>
                 </div>
                 
-                <div class="flex items-center gap-2">
+                <div v-if="isStoreTask(task)" class="flex items-center gap-2">
+                   <div class="flex max-w-full items-center gap-1.5 rounded-md border border-emerald-100/70 bg-emerald-50/60 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                      <Store class="h-3 w-3 shrink-0 text-emerald-500" />
+                      <span class="truncate">{{ task.store_name || t('tasks.table.storeFallbackName') }}</span>
+                      <span class="shrink-0 font-medium text-emerald-500/80">{{ t('tasks.table.storeId', { id: task.store_id || '-' }) }}</span>
+                   </div>
+                </div>
+                <div v-else class="flex items-center gap-2">
                    <div class="flex items-center gap-1.5 bg-slate-100/80 text-slate-600 px-2 py-0.5 rounded-md text-[11px] font-bold border border-slate-200/50">
                       <Search class="w-3 h-3 text-slate-400" />
                       {{ isItemIdTask(task) ? `${task.item_id_list?.length || 0} 个商品 ID` : task.keyword }}
@@ -213,7 +240,16 @@ const emit = defineEmits<{
 
             <!-- Column 3: Crawl Config -->
             <TableCell class="align-middle text-left">
-              <div class="space-y-2">
+              <div v-if="isStoreTask(task)" class="rounded-xl border border-emerald-100/70 bg-emerald-50/40 p-2.5">
+                <div class="flex items-center gap-1.5 text-xs font-black text-emerald-700">
+                  <Layers class="h-3.5 w-3.5" />
+                  {{ t('tasks.table.fullStoreItems') }}
+                </div>
+                <div class="mt-1 text-[9px] font-bold text-emerald-500/80">
+                  {{ t('tasks.table.dynamicSync') }}
+                </div>
+              </div>
+              <div v-else class="space-y-2">
                 <div class="flex items-baseline gap-0.5">
                   <span class="text-[10px] font-bold text-slate-400 mr-1 italic">¥</span>
                   <span class="text-sm font-black text-slate-700 tracking-tighter">
@@ -237,7 +273,11 @@ const emit = defineEmits<{
             <!-- Column 4: Matching Details -->
             <TableCell class="align-middle text-center">
               <div class="inline-flex flex-col items-center gap-2">
-                <div v-if="!isItemIdTask(task)" class="bg-blue-50/30 p-2 rounded-xl border border-blue-100/50">
+                <div v-if="isStoreTask(task)" class="rounded-xl border border-emerald-100/70 bg-emerald-50/40 p-2">
+                  <div class="text-xs font-black text-emerald-700">{{ t('tasks.table.storeItemTracking') }}</div>
+                  <div class="mt-0.5 text-[9px] font-bold uppercase tracking-tighter text-emerald-500/80">{{ t('tasks.table.groupedNotification') }}</div>
+                </div>
+                <div v-else-if="!isItemIdTask(task)" class="bg-blue-50/30 p-2 rounded-xl border border-blue-100/50">
                   <div class="text-xs font-black text-blue-600">{{ t('tasks.table.keywordStrategies', { count: task.keyword_rules?.length || 0 }) }}</div>
                   <div class="text-[9px] font-bold text-blue-400/70 uppercase mt-0.5 tracking-tighter">OR Logic</div>
                 </div>
@@ -274,7 +314,8 @@ const emit = defineEmits<{
                   </div>
                 </div>
                 <div class="flex items-center gap-1 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                  <Layers class="w-3 h-3 opacity-50" /> {{ task.max_pages || 3 }}P
+                  <Layers class="w-3 h-3 opacity-50" />
+                  {{ isStoreTask(task) ? t('tasks.table.dynamicItems') : `${task.max_pages || 3}P` }}
                 </div>
               </div>
             </TableCell>

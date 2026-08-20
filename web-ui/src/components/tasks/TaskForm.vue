@@ -35,7 +35,7 @@ const selectedAccountStateFile = ref(AUTO_ACCOUNT_VALUE)
 const keywordRulesInput = ref('')
 const itemIdListInput = ref('')  // 商品 ID 列表输入（每行一个）
 const cronMode = ref<'preset' | 'custom'>('preset')
-const taskType = ref<'keyword' | 'item_id'>('keyword')  // 任务类型
+const taskType = ref<'keyword' | 'item_id' | 'store'>('keyword')  // 任务类型
 
 // 常用 cron 预设选项
 const cronPresets = computed(() => [
@@ -103,6 +103,46 @@ function parseItemIds(text: string): string[] {
   )]
 }
 
+function normalizeStoreId(value: unknown): string {
+  const rawValue = typeof value === 'string' ? value.trim() : ''
+  if (!rawValue) return ''
+
+  const decodedValues = [rawValue]
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    try {
+      const currentValue = decodedValues[decodedValues.length - 1] || rawValue
+      const decoded = decodeURIComponent(currentValue)
+      if (decoded === currentValue) break
+      decodedValues.push(decoded)
+    } catch {
+      break
+    }
+  }
+
+  for (const decodedValue of decodedValues) {
+    const urlMatch = decodedValue.match(/https?:\/\/[^\s]+/i)
+    const candidate = urlMatch?.[0] || decodedValue
+    try {
+      const url = new URL(candidate)
+      for (const parameter of ['userId', 'user_id', 'uid']) {
+        const storeId = url.searchParams.get(parameter)?.trim()
+        if (storeId && /^\d+$/.test(storeId)) return storeId
+      }
+    } catch {
+      // 非 URL 输入会在下方按店铺 ID 处理。
+    }
+
+    const queryMatch = decodedValue.match(/(?:userId|user_id|uid)\s*=\s*(\d+)/i)
+    if (queryMatch?.[1]) return queryMatch[1]
+  }
+
+  return rawValue
+}
+
+function isValidStoreId(value: string): boolean {
+  return /^\d+$/.test(value)
+}
+
 watch(() => [props.mode, props.initialData, props.defaultValues, props.defaultAccount], () => {
   const defaultValues = props.defaultValues || {}
   if (props.mode === 'edit' && props.initialData) {
@@ -137,6 +177,8 @@ watch(() => [props.mode, props.initialData, props.defaultValues, props.defaultAc
     form.value = {
       task_name: '',
       keyword: '',
+      store_id: '',
+      store_name: '',
       max_pages: 3,
       personal_only: true,
       min_price: undefined,
@@ -220,6 +262,25 @@ function handleSubmit() {
         return
       }
     }
+  } else if (taskType.value === 'store') {
+    const storeId = normalizeStoreId(form.value.store_id)
+    if (!storeId) {
+      toast({
+        title: t('tasks.form.validation.incomplete'),
+        description: t('tasks.form.validation.storeIdRequired'),
+        variant: 'destructive',
+      })
+      return
+    }
+    if (!isValidStoreId(storeId)) {
+      toast({
+        title: t('tasks.form.validation.incomplete'),
+        description: t('tasks.form.validation.storeIdInvalid'),
+        variant: 'destructive',
+      })
+      return
+    }
+    form.value.store_id = storeId
   } else {
     // 关键词模式验证
     if (!form.value.keyword) {
@@ -244,8 +305,21 @@ function handleSubmit() {
     submitData.item_id_list = parseItemIds(itemIdListInput.value)
     submitData.keyword = ''  // 关键词模式不需要
     submitData.keyword_rules = [...submitData.item_id_list]
+    submitData.store_id = null
+    submitData.store_name = null
+  } else if (taskType.value === 'store') {
+    submitData.store_id = normalizeStoreId(submitData.store_id)
+    submitData.store_name = typeof submitData.store_name === 'string'
+      ? submitData.store_name.trim() || null
+      : null
+    submitData.keyword = ''
+    submitData.item_id_list = []
+    submitData.keyword_rules = []
   } else {
     // 关键词模式
+    submitData.store_id = null
+    submitData.store_name = null
+    submitData.item_id_list = []
     submitData.keyword_rules = parseKeywordText(keywordRulesInput.value)
     if (submitData.keyword_rules.length === 0 && submitData.keyword) {
       submitData.keyword_rules = [submitData.keyword]
@@ -302,6 +376,7 @@ function handleSubmit() {
             <SelectContent>
               <SelectItem value="keyword">{{ t('tasks.form.taskTypeKeyword') }}</SelectItem>
               <SelectItem value="item_id">{{ t('tasks.form.taskTypeItemId') }}</SelectItem>
+              <SelectItem value="store">{{ t('tasks.form.taskTypeStore') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -332,6 +407,44 @@ function handleSubmit() {
           </p>
         </div>
       </div>
+
+      <!-- 店铺监控模式：把店铺作为监控组，商品由后端动态同步 -->
+      <template v-if="taskType === 'store'">
+        <div class="grid grid-cols-4 gap-4">
+          <Label for="store-id" class="text-right pt-2">{{ t('tasks.form.storeIdLabel') }}</Label>
+          <div class="col-span-3 space-y-2">
+            <Input
+              id="store-id"
+              v-model="form.store_id"
+              :placeholder="t('tasks.form.storeIdPlaceholder')"
+              required
+            />
+            <p class="text-xs text-gray-500">
+              {{ t('tasks.form.storeIdHint') }}
+            </p>
+          </div>
+        </div>
+        <div class="grid grid-cols-4 gap-4">
+          <Label for="store-name" class="text-right pt-2">{{ t('tasks.form.storeNameLabel') }}</Label>
+          <div class="col-span-3 space-y-2">
+            <Input
+              id="store-name"
+              v-model="form.store_name"
+              :placeholder="t('tasks.form.storeNamePlaceholder')"
+            />
+            <p class="text-xs text-gray-500">
+              {{ t('tasks.form.storeNameHint') }}
+            </p>
+          </div>
+        </div>
+        <div class="grid grid-cols-4 gap-4">
+          <div></div>
+          <div class="col-span-3 rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
+            <p class="text-sm font-semibold text-emerald-800">{{ t('tasks.form.storeGroupHintTitle') }}</p>
+            <p class="mt-1 text-xs leading-5 text-emerald-700/80">{{ t('tasks.form.storeGroupHintDescription') }}</p>
+          </div>
+        </div>
+      </template>
 
       <!-- 关键词模式专属字段 -->
       <template v-if="taskType === 'keyword'">

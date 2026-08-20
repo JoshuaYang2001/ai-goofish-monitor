@@ -4,8 +4,9 @@
 """
 import asyncio
 import logging
-from typing import Dict, List
+from typing import Dict, Iterable, List
 
+from src.domain.models.store_monitoring import StoreMonitoringDigest
 from src.infrastructure.external.notification_clients.base import NotificationClient
 from src.infrastructure.external.notification_clients.factory import build_notification_clients
 from src.services.notification_config_service import load_notification_settings
@@ -54,6 +55,74 @@ class NotificationService:
             test_product,
             "这是一条测试通知，用于验证推送渠道是否可用。",
         )
+
+    async def send_store_digest(
+        self,
+        digest: StoreMonitoringDigest,
+        *,
+        channel_keys: Iterable[str] | None = None,
+    ) -> Dict[str, Dict[str, str | bool]]:
+        """Send one store-run digest to every enabled channel."""
+        selected_channels = set(channel_keys) if channel_keys is not None else None
+        clients = [
+            client
+            for client in self.clients
+            if selected_channels is None or client.channel_key in selected_channels
+        ]
+        if not clients:
+            return {}
+
+        tasks = [
+            self._send_store_digest_with_retry(client, digest)
+            for client in clients
+        ]
+        results = await asyncio.gather(*tasks)
+        return {result["channel"]: result for result in results}
+
+    def enabled_channel_keys(self) -> tuple[str, ...]:
+        return tuple(client.channel_key for client in self.clients)
+
+    async def _send_store_digest_with_retry(
+        self,
+        client: NotificationClient,
+        digest: StoreMonitoringDigest,
+    ) -> Dict[str, str | bool]:
+        """Send a grouped store notification using the standard retry policy."""
+        last_error = None
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                await client.send_store_digest(digest)
+                return {
+                    "channel": client.channel_key,
+                    "label": client.display_name,
+                    "success": True,
+                    "message": "发送成功",
+                }
+            except Exception as exc:
+                last_error = exc
+                if attempt < self.MAX_RETRIES:
+                    logger.warning(
+                        "店铺汇总通知发送失败 (%s), 第 %s 次重试，延迟 %s 秒：%s",
+                        client.channel_key,
+                        attempt,
+                        self.RETRY_DELAY,
+                        exc,
+                    )
+                    await asyncio.sleep(self.RETRY_DELAY * attempt)
+                else:
+                    logger.error(
+                        "店铺汇总通知发送失败 (%s), 已达到最大重试次数：%s",
+                        client.channel_key,
+                        exc,
+                    )
+
+        return {
+            "channel": client.channel_key,
+            "label": client.display_name,
+            "success": False,
+            "message": str(last_error),
+        }
 
     async def _send_with_retry(
         self,

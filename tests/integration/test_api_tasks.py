@@ -74,6 +74,64 @@ def test_create_item_id_task_directly_keeps_all_unique_ids(api_client):
     assert task["keyword_rules"] == ["123456", "987654"]
 
 
+def test_create_update_and_reload_store_task(api_client, api_context):
+    response = api_client.post(
+        "/api/tasks/",
+        json={
+            "task_name": "全店商品监控",
+            "task_type": "store",
+            "store_id": "https://www.goofish.com/personal?userId=2206814873475",
+            "store_name": "相机铺子",
+            "cron": "*/15 * * * *",
+        },
+    )
+
+    assert response.status_code == 200
+    task = response.json()["task"]
+    assert task["task_type"] == "store"
+    assert task["store_id"] == "2206814873475"
+    assert task["store_name"] == "相机铺子"
+    assert task["keyword_rules"] == []
+
+    update_response = api_client.patch(
+        "/api/tasks/0",
+        json={
+            "store_id": "https://www.goofish.com/personal?uid=99887766",
+            "store_name": "新店名",
+        },
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["task"]["store_id"] == "99887766"
+
+    repository = SqliteTaskRepository(
+        db_path=api_context["db_path"],
+        legacy_config_file=None,
+    )
+    persisted = asyncio.run(repository.find_by_id(0))
+    assert persisted is not None
+    assert persisted.task_type == "store"
+    assert persisted.store_id == "99887766"
+    assert persisted.store_name == "新店名"
+
+
+def test_store_task_rejects_missing_or_invalid_store_id(api_client):
+    missing_response = api_client.post(
+        "/api/tasks/",
+        json={"task_name": "无店铺", "task_type": "store"},
+    )
+    assert missing_response.status_code == 422
+
+    invalid_response = api_client.post(
+        "/api/tasks/",
+        json={
+            "task_name": "错误店铺",
+            "task_type": "store",
+            "store_id": "https://www.goofish.com/personal",
+        },
+    )
+    assert invalid_response.status_code == 422
+
+
 def test_create_task_accepts_cron_alias(api_client, sample_task_payload):
     payload = dict(sample_task_payload)
     payload["cron"] = "@daily"
@@ -189,6 +247,60 @@ def test_delete_task_stops_runtime_and_reindexes_process_state(
     assert process_service.reindexed == []
 
 
+def test_rename_task_updates_store_membership_and_notification_outbox(
+    api_client,
+    api_context,
+    sample_task_payload,
+):
+    assert api_client.post("/api/tasks/", json=sample_task_payload).status_code == 200
+
+    old_task_name = sample_task_payload["task_name"]
+    new_task_name = "Sony A7M4 店铺监控"
+    snapshot_time = "2026-07-15T10:00:00"
+    with sqlite3.connect(api_context["db_path"]) as connection:
+        connection.execute(
+            """
+            INSERT INTO store_monitor_items (
+                task_name, store_id, item_id, title, is_active,
+                first_seen_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, 1, ?, ?)
+            """,
+            (old_task_name, "100", "200", "测试商品", snapshot_time, snapshot_time),
+        )
+        connection.execute(
+            """
+            INSERT INTO store_notification_outbox (
+                event_key, task_name, payload_json, pending_channels_json,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "store-run:rename-test",
+                old_task_name,
+                json.dumps({"task_name": old_task_name}, ensure_ascii=False),
+                '["feishu"]',
+                snapshot_time,
+                snapshot_time,
+            ),
+        )
+        connection.commit()
+
+    response = api_client.patch("/api/tasks/0", json={"task_name": new_task_name})
+
+    assert response.status_code == 200
+    with sqlite3.connect(api_context["db_path"]) as connection:
+        member_task_name = connection.execute(
+            "SELECT task_name FROM store_monitor_items WHERE item_id = ?",
+            ("200",),
+        ).fetchone()[0]
+        outbox_task_name = connection.execute(
+            "SELECT task_name FROM store_notification_outbox WHERE event_key = ?",
+            ("store-run:rename-test",),
+        ).fetchone()[0]
+    assert member_task_name == new_task_name
+    assert outbox_task_name == new_task_name
+
+
 def test_delete_task_cascades_only_its_results_and_history(
     api_client,
     api_context,
@@ -253,13 +365,51 @@ def test_delete_task_cascades_only_its_results_and_history(
                 """,
                 (task_name, str(index), task_name, record["爬取时间"], 1000 + index, index),
             )
+            connection.execute(
+                """
+                INSERT INTO store_monitor_items (
+                    task_name, store_id, item_id, title, is_active,
+                    first_seen_at, last_seen_at
+                ) VALUES (?, ?, ?, ?, 1, ?, ?)
+                """,
+                (
+                    task_name,
+                    str(index),
+                    str(index),
+                    task_name,
+                    record["爬取时间"],
+                    record["爬取时间"],
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO store_notification_outbox (
+                    event_key, task_name, payload_json, pending_channels_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"store-run:delete-test:{index}",
+                    task_name,
+                    json.dumps({"task_name": task_name}, ensure_ascii=False),
+                    '["feishu"]',
+                    record["爬取时间"],
+                    record["爬取时间"],
+                ),
+            )
         connection.commit()
 
     response = api_client.delete("/api/tasks/0")
 
     assert response.status_code == 200
     with sqlite3.connect(api_context["db_path"]) as connection:
-        for table_name in ("result_items", "price_snapshots", "item_metrics_history"):
+        for table_name in (
+            "result_items",
+            "price_snapshots",
+            "item_metrics_history",
+            "store_monitor_items",
+            "store_notification_outbox",
+        ):
             task_names = {
                 row[0]
                 for row in connection.execute(
@@ -305,3 +455,5 @@ def test_task_schema_migration_preserves_monitoring_fields(tmp_path):
         }
     assert "legacy_analysis" not in columns
     assert "item_id_list_json" in columns
+    assert "store_id" in columns
+    assert "store_name" in columns

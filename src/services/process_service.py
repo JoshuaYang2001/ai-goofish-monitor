@@ -37,6 +37,7 @@ class ProcessService:
         self.log_handles: Dict[tuple[str, int], TextIO] = {}
         self.task_names: Dict[tuple[str, int], str] = {}
         self.exit_watchers: Dict[tuple[str, int], asyncio.Task] = {}
+        self.expected_stops: set[tuple[str, int]] = set()
         self.failure_guard = FailureGuard()
         self._failure_guards: Dict[str, FailureGuard] = {}
         self._on_started: LifecycleHook | None = None
@@ -267,15 +268,29 @@ class ProcessService:
                     else:
                         content = full_content
 
-                    # 从日志中查找类似 "推荐了 X 个商品" 或 "共处理了 X 个商品" 的行
-                    matches = re.findall(r"推荐了 (\d+) 个商品", content)
-                    if matches:
-                        items_count = int(matches[-1])
+                    # 优先识别店铺监控的稳定汇总行，再兼容关键词/商品 ID 旧日志。
+                    store_matches = re.findall(
+                        r"店铺在售商品 \d+ 件，成功采集 (\d+) 件",
+                        content,
+                    )
+                    if store_matches:
+                        items_count = int(store_matches[-1])
                     else:
-                        # 商品 ID 监控模式使用处理数作为完成数量
-                        matches = re.findall(r"共处理了 (\d+) 个商品", content)
-                        if matches:
-                            items_count = int(matches[-1])
+                        partial_store_matches = re.findall(
+                            r"店铺监控部分失败：成功 (\d+)/\d+",
+                            content,
+                        )
+                        if partial_store_matches:
+                            items_count = int(partial_store_matches[-1])
+                        else:
+                            matches = re.findall(r"推荐了 (\d+) 个商品", content)
+                            if matches:
+                                items_count = int(matches[-1])
+                            else:
+                                # 商品 ID 监控模式使用处理数作为完成数量
+                                matches = re.findall(r"共处理了 (\d+) 个商品", content)
+                                if matches:
+                                    items_count = int(matches[-1])
 
                     # 提取想要数汇总信息（只取本次运行的值）
                     want_matches = re.findall(r"想要数：(\d+)", content)
@@ -298,11 +313,16 @@ class ProcessService:
                 pass
 
         # 发送 WebSocket 通知
+        was_expected_stop = runtime_key in self.expected_stops
+        self.expected_stops.discard(runtime_key)
         notification_data = {
             "task_id": task_id,
             "task_name": task_name,
             "completed_at": datetime.now().isoformat(),
             "items_count": items_count,
+            "success": process.returncode == 0,
+            "returncode": process.returncode,
+            "stopped": was_expected_stop,
         }
         if want_count_total > 0:
             notification_data["want_count_total"] = want_count_total
@@ -311,7 +331,13 @@ class ProcessService:
         if price_diff is not None and price_diff != 0:
             notification_data["price_diff"] = price_diff
 
-        await websocket.broadcast_message("task_completed", notification_data)
+        if process.returncode == 0:
+            event_name = "task_completed"
+        elif was_expected_stop:
+            event_name = "task_stopped"
+        else:
+            event_name = "task_failed"
+        await websocket.broadcast_message(event_name, notification_data)
 
         self._cleanup_runtime(runtime_key, process)
         await self._invoke_hook(self._on_stopped, task_id)
@@ -359,15 +385,18 @@ class ProcessService:
             return False
 
         try:
+            self.expected_stops.add(runtime_key)
             await self._terminate_process(process, task_id)
             self._append_stop_marker(self.log_paths.get(runtime_key))
             await self._await_exit_watcher(task_id)
             print(f"任务进程 {process.pid} (ID: {task_id}) 已终止")
             return True
         except ProcessLookupError:
+            self.expected_stops.discard(runtime_key)
             print(f"进程 (ID: {task_id}) 已不存在")
             return False
         except Exception as exc:
+            self.expected_stops.discard(runtime_key)
             print(f"停止任务进程 (ID: {task_id}) 时出错: {exc}")
             return False
 

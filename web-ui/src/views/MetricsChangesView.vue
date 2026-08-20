@@ -163,6 +163,7 @@ async function addCustomInterval() {
 
 on('tasks_updated', loadTasksAndChanges)
 on('task_completed', loadChanges)
+on('task_failed', loadChanges)
 onMounted(loadTasksAndChanges)
 </script>
 

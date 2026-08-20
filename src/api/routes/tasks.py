@@ -101,6 +101,17 @@ async def update_task(
             if not final_item_ids:
                 raise HTTPException(status_code=400, detail="商品 ID 监控至少需要一个商品 ID。")
             task_update.keyword_rules = list(dict.fromkeys(final_item_ids))
+        elif final_task_type == "store":
+            final_store_id = (
+                task_update.store_id
+                if "store_id" in task_update.model_fields_set
+                else existing_task.store_id
+            )
+            if not final_store_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="店铺监控必须提供店铺 ID 或个人主页链接。",
+                )
         else:
             final_keyword = task_update.keyword or existing_task.keyword
             final_rules = task_update.keyword_rules or existing_task.keyword_rules

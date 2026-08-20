@@ -13,6 +13,32 @@ Notifier = Callable[[dict, str], Awaitable[None]]
 Saver = Callable[[dict, str], Awaitable[bool]]
 
 
+def parse_metric_count(value: object) -> Optional[int]:
+    """解析闲鱼返回的计数字段，兼容数字、带文案和“万”单位。"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = (
+        str(value)
+        .replace("想要", "")
+        .replace("浏览", "")
+        .replace("人", "")
+        .replace(",", "")
+        .strip()
+    )
+    if not text or text.lower() in {"nan", "none", "-"}:
+        return None
+    try:
+        if text.endswith("万"):
+            return int(float(text[:-1]) * 10000)
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass(frozen=True)
 class ItemAnalysisJob:
     keyword: str
@@ -64,32 +90,22 @@ class ItemAnalysisDispatcher:
             self.completed_count += 1
 
         # 解析当前价格和想要数（用于比较和记录）
-        item_id = str(item_data.get("商品 ID", ""))
+        item_id = str(item_data.get("商品 ID") or item_data.get("商品ID") or "")
         price_raw = item_data.get("当前售价")
-        want_count_raw = item_data.get("想要人数")
+        want_count_raw = item_data.get("想要人数", item_data.get("“想要”人数"))
         browse_count_raw = item_data.get("浏览量")
 
         # 解析价格为数值
         price_value = None
-        if price_raw:
+        if price_raw is not None:
             try:
                 price_value = float(str(price_raw).replace("¥", "").strip())
             except (ValueError, TypeError):
                 price_value = None
 
         # 解析想要数为整数
-        want_count_value = None
-        browse_count_value = None
-        if want_count_raw:
-            try:
-                want_count_value = int(str(want_count_raw).replace("想要", "").strip())
-            except (ValueError, TypeError):
-                pass
-        if browse_count_raw:
-            try:
-                browse_count_value = int(str(browse_count_raw).replace("浏览", "").strip())
-            except (ValueError, TypeError):
-                pass
+        want_count_value = parse_metric_count(want_count_raw)
+        browse_count_value = parse_metric_count(browse_count_raw)
 
         # 先比较当前值和数据库最新记录（写入之前）
         if item_id:
@@ -97,8 +113,9 @@ class ItemAnalysisDispatcher:
             changes = metrics_service.compare_with_latest(
                 item_id=item_id,
                 current_price=price_value,
-                current_price_display=str(price_raw) if price_raw else None,
+                current_price_display=str(price_raw) if price_raw is not None else None,
                 current_want_count=want_count_value,
+                task_name=job.task_name,
             )
             # 设置或清除变化字段
             if changes and "price_change_display" in changes:
@@ -119,7 +136,7 @@ class ItemAnalysisDispatcher:
                     item_id=item_id,
                     title=item_data.get("商品标题", "")[:200],
                     price=price_value,
-                    price_display=str(price_raw) if price_raw else None,
+                    price_display=str(price_raw) if price_raw is not None else None,
                     want_count=want_count_value,
                     browse_count=browse_count_value,
                     seller_id=item_data.get("卖家 ID"),

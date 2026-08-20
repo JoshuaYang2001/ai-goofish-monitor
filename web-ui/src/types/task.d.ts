@@ -3,10 +3,12 @@
 export interface Task {
   id: number;
   task_name: string;
-  task_type: 'keyword' | 'item_id';
+  task_type: 'keyword' | 'item_id' | 'store';
   enabled: boolean;
   keyword: string | null;
   item_id_list: string[];
+  store_id: string | null;
+  store_name: string | null;
   max_pages: number;
   personal_only: boolean;
   min_price: string | null;
@@ -35,9 +37,11 @@ export type TaskUpdate = Partial<Omit<Task, 'id' | 'next_run_at' | 'is_queued'>>
 // For task creation
 export interface TaskCreateRequest {
   task_name: string;
-  task_type?: 'keyword' | 'item_id';
+  task_type?: 'keyword' | 'item_id' | 'store';
   keyword?: string | null;
   item_id_list?: string[];
+  store_id?: string | null;
+  store_name?: string | null;
   personal_only?: boolean;
   min_price?: string | null;
   max_price?: string | null;

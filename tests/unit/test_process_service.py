@@ -109,3 +109,53 @@ def test_process_service_adds_debug_limit_arg_when_env_enabled(monkeypatch):
         "--debug-limit",
         "1",
     ]
+
+
+def test_process_service_parses_store_count_and_distinguishes_failed_exit(
+    monkeypatch, tmp_path
+):
+    async def run_scenario(returncode: int):
+        service = ProcessService()
+        runtime_key = ("default", 7)
+        process = SimpleNamespace(returncode=returncode)
+        log_path = tmp_path / f"store-{returncode}.log"
+        summary_line = (
+            "任务 '店铺组' 正常结束，店铺在售商品 5 件，成功采集 4 件，"
+            "变化或新纳入 2 件。\n"
+            if returncode == 0
+            else "店铺监控部分失败：成功 4/5，失败商品：1005\n"
+        )
+        log_path.write_text(
+            "--- 开始执行监控任务 ---\n" + summary_line,
+            encoding="utf-8",
+        )
+        service.processes[runtime_key] = process
+        service.log_paths[runtime_key] = str(log_path)
+        service.task_names[runtime_key] = "店铺组"
+        if returncode == -15:
+            service.expected_stops.add(runtime_key)
+        events = []
+
+        async def capture_event(event_name, data):
+            events.append((event_name, data))
+
+        monkeypatch.setattr(
+            "src.services.process_service.websocket.broadcast_message",
+            capture_event,
+        )
+        await service._handle_process_exit(process, runtime_key, 7)
+        return events
+
+    completed_events = asyncio.run(run_scenario(0))
+    failed_events = asyncio.run(run_scenario(1))
+    stopped_events = asyncio.run(run_scenario(-15))
+
+    assert completed_events[0][0] == "task_completed"
+    assert completed_events[0][1]["items_count"] == 4
+    assert completed_events[0][1]["success"] is True
+    assert failed_events[0][0] == "task_failed"
+    assert failed_events[0][1]["success"] is False
+    assert failed_events[0][1]["items_count"] == 4
+    assert stopped_events[0][0] == "task_stopped"
+    assert stopped_events[0][1]["stopped"] is True
+    assert stopped_events[0][1]["items_count"] == 4

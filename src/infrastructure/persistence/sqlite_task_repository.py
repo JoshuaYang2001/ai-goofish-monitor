@@ -111,12 +111,12 @@ class SqliteTaskRepository(TaskRepository):
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tasks (
-                    id, task_name, task_type, enabled, keyword, item_id_list_json,
+                    id, task_name, task_type, enabled, keyword, item_id_list_json, store_id, store_name,
                     max_pages, personal_only, min_price, max_price, cron, account_state_file,
                     account_strategy, free_shipping, new_publish_option, region,
                     keyword_rules_json, is_running, is_paused
                 ) VALUES (
-                    :id, :task_name, :task_type, :enabled, :keyword, :item_id_list_json,
+                    :id, :task_name, :task_type, :enabled, :keyword, :item_id_list_json, :store_id, :store_name,
                     :max_pages, :personal_only, :min_price, :max_price, :cron, :account_state_file,
                     :account_strategy, :free_shipping, :new_publish_option, :region,
                     :keyword_rules_json, :is_running, :is_paused
@@ -147,6 +147,14 @@ class SqliteTaskRepository(TaskRepository):
                 "DELETE FROM item_metrics_history WHERE task_name = ?",
                 (task_name,),
             )
+            conn.execute(
+                "DELETE FROM store_monitor_items WHERE task_name = ?",
+                (task_name,),
+            )
+            conn.execute(
+                "DELETE FROM store_notification_outbox WHERE task_name = ?",
+                (task_name,),
+            )
             cursor = conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             conn.commit()
         return cursor.rowcount > 0
@@ -157,6 +165,8 @@ class SqliteTaskRepository(TaskRepository):
             "result_items",
             "price_snapshots",
             "item_metrics_history",
+            "store_monitor_items",
+            "store_notification_outbox",
         ):
             conn.execute(
                 f"UPDATE {table_name} SET task_name = ? WHERE task_name = ?",

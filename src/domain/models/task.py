@@ -5,6 +5,7 @@
 import re
 from enum import Enum
 from typing import Any, List, Literal, Optional
+from urllib.parse import parse_qs, unquote, urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -102,6 +103,52 @@ def _normalize_optional_string(value):
     return value
 
 
+def normalize_store_id(value: Any) -> Optional[str]:
+    """将店铺 ID 或闲鱼个人主页 URL 规范化为纯数字用户 ID。"""
+    if _normalize_optional_string(value) is None:
+        return None
+
+    text = str(value).strip()
+    if text.isdigit():
+        return text
+
+    decoded_values = [text]
+    for _ in range(2):
+        decoded = unquote(decoded_values[-1])
+        if decoded == decoded_values[-1]:
+            break
+        decoded_values.append(decoded)
+
+    query_keys = {"userid", "user_id", "uid"}
+    for candidate in decoded_values:
+        parsed = urlparse(candidate)
+        query = parse_qs(parsed.query)
+        for key, raw_values in query.items():
+            if key.lower() not in query_keys:
+                continue
+            for raw_value in raw_values:
+                normalized_value = str(raw_value).strip()
+                if normalized_value.isdigit():
+                    return normalized_value
+
+        matched = re.search(
+            r"(?:userId|user_id|uid)\s*=\s*(\d+)",
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        if matched:
+            return matched.group(1)
+
+    raise ValueError("店铺 ID 必须是数字，或包含 userId 的闲鱼个人主页链接。")
+
+
+def _normalize_store_name(value: Any) -> Optional[str]:
+    if _normalize_optional_string(value) is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def _validate_cron_expression(value: Optional[str]) -> Optional[str]:
     return validate_cron_expression(value)
 
@@ -121,10 +168,12 @@ class Task(BaseModel):
 
     id: Optional[int] = None
     task_name: str
-    task_type: Literal["keyword", "item_id"] = "keyword"  # 任务类型：关键词搜索 / 商品 ID 监控
+    task_type: Literal["keyword", "item_id", "store"] = "keyword"  # 任务类型：关键词搜索 / 商品 ID / 店铺监控
     enabled: bool
     keyword: Optional[str] = None  # 关键词模式必填，item_id 模式可选（用于备注）
     item_id_list: List[str] = Field(default_factory=list)  # 商品 ID 列表（item_id 模式使用）
+    store_id: Optional[str] = None  # 店铺模式使用，保存规范化后的闲鱼用户 ID
+    store_name: Optional[str] = None  # 可选的店铺显示名称
     max_pages: int = 3
     personal_only: bool = True
     min_price: Optional[str] = None
@@ -149,6 +198,22 @@ class Task(BaseModel):
     def normalize_keyword_rules(cls, value):
         return _normalize_keyword_values(value)
 
+    @field_validator("store_id", mode="before")
+    @classmethod
+    def normalize_store_identifier(cls, value):
+        return normalize_store_id(value)
+
+    @field_validator("store_name", mode="before")
+    @classmethod
+    def normalize_store_display_name(cls, value):
+        return _normalize_store_name(value)
+
+    @model_validator(mode="after")
+    def validate_store_payload(self):
+        if self.task_type == "store" and not self.store_id:
+            raise ValueError("店铺监控模式下，必须提供店铺 ID 或个人主页链接。")
+        return self
+
     def can_start(self) -> bool:
         """检查任务是否可以启动"""
         return self.enabled and not self.is_running
@@ -169,10 +234,12 @@ class TaskCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     task_name: str
-    task_type: Literal["keyword", "item_id"] = "keyword"  # 任务类型：关键词搜索 / 商品 ID 监控
+    task_type: Literal["keyword", "item_id", "store"] = "keyword"  # 任务类型：关键词搜索 / 商品 ID / 店铺监控
     enabled: bool = True
     keyword: Optional[str] = None  # 关键词模式必填，item_id 模式可选（用于备注）
     item_id_list: List[str] = Field(default_factory=list)  # 商品 ID 列表（item_id 模式使用）
+    store_id: Optional[str] = None  # 店铺 ID 或闲鱼个人主页链接
+    store_name: Optional[str] = None  # 可选的店铺显示名称
     max_pages: int = 3
     personal_only: bool = True
     min_price: Optional[str] = None
@@ -215,6 +282,16 @@ class TaskCreate(BaseModel):
     def normalize_keyword_rules(cls, value):
         return _normalize_keyword_values(value)
 
+    @field_validator("store_id", mode="before")
+    @classmethod
+    def normalize_store_identifier(cls, value):
+        return normalize_store_id(value)
+
+    @field_validator("store_name", mode="before")
+    @classmethod
+    def normalize_store_display_name(cls, value):
+        return _normalize_store_name(value)
+
     @model_validator(mode="after")
     def validate_task_payload(self):
         # 商品 ID 监控模式验证
@@ -231,6 +308,9 @@ class TaskCreate(BaseModel):
                 raise ValueError("关键词模式下，必须提供搜索关键词。")
             if not _has_keyword_rules(self.keyword_rules):
                 raise ValueError("关键词判断模式下，至少需要一个关键词。")
+        elif self.task_type == "store":
+            if not self.store_id:
+                raise ValueError("店铺监控模式下，必须提供店铺 ID 或个人主页链接。")
 
         if self.account_strategy == "fixed" and not self.account_state_file:
             raise ValueError("固定账号模式下必须选择账号。")
@@ -243,10 +323,12 @@ class TaskUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     task_name: Optional[str] = None
-    task_type: Optional[Literal["keyword", "item_id"]] = None
+    task_type: Optional[Literal["keyword", "item_id", "store"]] = None
     enabled: Optional[bool] = None
     keyword: Optional[str] = None
     item_id_list: Optional[List[str]] = None
+    store_id: Optional[str] = None
+    store_name: Optional[str] = None
     max_pages: Optional[int] = None
     personal_only: Optional[bool] = None
     min_price: Optional[str] = None
@@ -291,10 +373,20 @@ class TaskUpdate(BaseModel):
     def normalize_keyword_rules(cls, value):
         return _normalize_keyword_values(value)
 
+    @field_validator("store_id", mode="before")
+    @classmethod
+    def normalize_store_identifier(cls, value):
+        return normalize_store_id(value)
+
+    @field_validator("store_name", mode="before")
+    @classmethod
+    def normalize_store_display_name(cls, value):
+        return _normalize_store_name(value)
+
     @model_validator(mode="after")
     def validate_partial_keyword_payload(self):
         # 只在明确设置了 keyword_rules 时才验证关键词规则
-        if self.keyword_rules is not None:
+        if self.keyword_rules is not None and self.task_type != "store":
             if not _has_keyword_rules(self.keyword_rules):
                 raise ValueError("关键词判断模式下，至少需要一个关键词。")
         return self

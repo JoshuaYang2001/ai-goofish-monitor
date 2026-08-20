@@ -87,3 +87,45 @@ def test_item_id_create_deduplicates_ids_and_uses_direct_rules():
 
     assert request.item_id_list == ["123456", "987654"]
     assert request.keyword_rules == ["123456", "987654"]
+
+
+@pytest.mark.parametrize(
+    ("raw_store_id", "expected_store_id"),
+    [
+        (" 2206814873475 ", "2206814873475"),
+        (
+            "https://www.goofish.com/personal?userId=2206814873475&tab=items",
+            "2206814873475",
+        ),
+        (
+            "https://example.test/redirect?url=https%3A%2F%2Fwww.goofish.com%2Fpersonal%3FuserId%3D2206814873475",
+            "2206814873475",
+        ),
+    ],
+)
+def test_store_create_normalizes_numeric_id_or_profile_url(
+    raw_store_id,
+    expected_store_id,
+):
+    request = TaskCreate(
+        task_name="相机店铺监控",
+        task_type="store",
+        store_id=raw_store_id,
+        store_name="  相机铺子  ",
+    )
+
+    assert request.store_id == expected_store_id
+    assert request.store_name == "相机铺子"
+    assert request.keyword_rules == []
+
+
+def test_store_create_requires_valid_store_id():
+    with pytest.raises(ValueError, match="必须提供店铺 ID"):
+        TaskCreate(task_name="无店铺 ID", task_type="store")
+
+    with pytest.raises(ValueError, match="店铺 ID 必须是数字"):
+        TaskCreate(
+            task_name="错误店铺 URL",
+            task_type="store",
+            store_id="https://www.goofish.com/personal",
+        )
