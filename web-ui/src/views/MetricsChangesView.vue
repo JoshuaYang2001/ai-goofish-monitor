@@ -34,16 +34,12 @@ const taskGroups = computed<MetricTaskGroup[]>(() => {
     itemsByTask.set(item.task_name, taskItems)
   }
 
-  const taskByName = new Map(tasks.value.map((task) => [task.task_name, task]))
-  const orderedTaskNames = searchText.value.trim()
-    ? [...itemsByTask.keys()]
-    : [
-        ...tasks.value.map((task) => task.task_name),
-        ...[...itemsByTask.keys()].filter((taskName) => !taskByName.has(taskName)),
-      ]
+  const visibleTasks = searchText.value.trim()
+    ? tasks.value.filter((task) => itemsByTask.has(task.task_name))
+    : tasks.value
 
-  return [...new Set(orderedTaskNames)].map((taskName, index) => {
-    const task = taskByName.get(taskName) ?? null
+  return visibleTasks.map((task) => {
+    const taskName = task.task_name
     const items = [...(itemsByTask.get(taskName) ?? [])].sort((left, right) => {
       const rightChange = right.changes[String(selectedInterval.value)]?.want_change ?? 0
       const leftChange = left.changes[String(selectedInterval.value)]?.want_change ?? 0
@@ -58,7 +54,7 @@ const taskGroups = computed<MetricTaskGroup[]>(() => {
     }, null)
 
     return {
-      key: task ? String(task.id) : `history-${index}`,
+      key: String(task.id),
       taskName,
       task,
       items,

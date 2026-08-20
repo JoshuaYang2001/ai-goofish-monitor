@@ -246,6 +246,14 @@ class MetricsTrackingService:
         normalized_search = (search or "").strip().lower()
 
         with sqlite_connection() as conn:
+            current_task_rows = conn.execute(
+                """
+                SELECT DISTINCT task_name
+                FROM tasks
+                WHERE TRIM(task_name) <> ''
+                """
+            ).fetchall()
+
             metric_rows = conn.execute(
                 """
                 SELECT task_name, item_id, title, snapshot_time, price, price_display,
@@ -257,12 +265,17 @@ class MetricsTrackingService:
 
             task_rows = conn.execute(
                 """
-                SELECT DISTINCT item_id, task_name
-                FROM price_snapshots
-                WHERE TRIM(task_name) <> ''
+                SELECT DISTINCT snapshots.item_id, snapshots.task_name
+                FROM price_snapshots AS snapshots
+                INNER JOIN tasks ON tasks.task_name = snapshots.task_name
+                WHERE TRIM(snapshots.task_name) <> ''
                 """
             ).fetchall()
 
+        current_task_names = {
+            str(row["task_name"])
+            for row in current_task_rows
+        }
         tasks_by_item: Dict[str, set[str]] = {}
         for row in task_rows:
             tasks_by_item.setdefault(str(row["item_id"]), set()).add(
@@ -273,9 +286,14 @@ class MetricsTrackingService:
         for row in metric_rows:
             item_id = str(row["item_id"])
             stored_task_name = str(row["task_name"] or "")
-            candidate_tasks = [stored_task_name] if stored_task_name else sorted(
-                tasks_by_item.get(item_id, {""})
-            )
+            if stored_task_name:
+                candidate_tasks = (
+                    [stored_task_name]
+                    if stored_task_name in current_task_names
+                    else []
+                )
+            else:
+                candidate_tasks = sorted(tasks_by_item.get(item_id, set()))
             for candidate_task in candidate_tasks:
                 if task_name and candidate_task != task_name:
                     continue

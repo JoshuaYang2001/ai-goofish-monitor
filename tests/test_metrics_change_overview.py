@@ -8,6 +8,21 @@ from src.infrastructure.persistence.sqlite_connection import init_schema, sqlite
 from src.services.metrics_tracking_service import MetricsTrackingService
 
 
+def _insert_task(conn, task_name: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO tasks (
+            id, task_name, enabled, keyword, max_pages, personal_only,
+            account_strategy, free_shipping, keyword_rules_json, is_running
+        ) VALUES (
+            (SELECT COALESCE(MAX(id), -1) + 1 FROM tasks),
+            ?, 1, ?, 1, 1, 'auto', 1, '[]', 0
+        )
+        """,
+        (task_name, task_name),
+    )
+
+
 def test_change_overview_uses_requested_time_windows(tmp_path, monkeypatch):
     database_path = tmp_path / "metrics.sqlite3"
     monkeypatch.setenv("APP_DATABASE_FILE", str(database_path))
@@ -15,6 +30,7 @@ def test_change_overview_uses_requested_time_windows(tmp_path, monkeypatch):
 
     with sqlite_connection() as conn:
         init_schema(conn)
+        _insert_task(conn, "手机监控")
         conn.execute(
             """
             INSERT INTO price_snapshots (
@@ -74,11 +90,12 @@ def test_change_overview_filters_by_title_or_item_id(tmp_path, monkeypatch):
 
     with sqlite_connection() as conn:
         init_schema(conn)
+        _insert_task(conn, "键盘监控")
         conn.execute(
             """
             INSERT INTO item_metrics_history (
-                item_id, title, snapshot_time, price, want_count
-            ) VALUES ('9988', '机械键盘', '2026-07-14T10:00:00', 399, 8)
+                task_name, item_id, title, snapshot_time, price, want_count
+            ) VALUES ('键盘监控', '9988', '机械键盘', '2026-07-14T10:00:00', 399, 8)
             """
         )
         conn.commit()
@@ -119,6 +136,8 @@ def test_change_overview_only_aggregates_selected_task(tmp_path, monkeypatch):
 
     with sqlite_connection() as conn:
         init_schema(conn)
+        _insert_task(conn, "相机监控")
+        _insert_task(conn, "手机监控")
         for task_name, item_id, start_price, end_price in (
             ("相机监控", "camera-1", 5000, 4800),
             ("手机监控", "phone-1", 4000, 3500),
@@ -165,6 +184,7 @@ def test_change_overview_marks_window_unavailable_when_latest_snapshot_is_stale(
 
     with sqlite_connection() as conn:
         init_schema(conn)
+        _insert_task(conn, "相机监控")
         for hours_ago, want_count in ((12, 10), (10, 20)):
             conn.execute(
                 """
@@ -194,6 +214,87 @@ def test_change_overview_marks_window_unavailable_when_latest_snapshot_is_stale(
     assert change["baseline_time"] is None
     assert change["want_change"] is None
     assert overview["summaries"]["3"]["available_items"] == 0
+
+
+def test_change_overview_excludes_history_for_deleted_tasks(tmp_path, monkeypatch):
+    database_path = tmp_path / "orphan-metrics.sqlite3"
+    monkeypatch.setenv("APP_DATABASE_FILE", str(database_path))
+    now = datetime(2026, 7, 14, 12, 0, 0)
+
+    with sqlite_connection() as conn:
+        init_schema(conn)
+        _insert_task(conn, "当前任务")
+
+        for task_name, item_id in (
+            ("当前任务", "active-item"),
+            ("baidu", "orphan-item"),
+        ):
+            for hours_ago, want_count in ((25, 10), (1, 20)):
+                conn.execute(
+                    """
+                    INSERT INTO item_metrics_history (
+                        task_name, item_id, title, snapshot_time, price, want_count
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        task_name,
+                        item_id,
+                        item_id,
+                        (now - timedelta(hours=hours_ago)).isoformat(),
+                        100,
+                        want_count,
+                    ),
+                )
+
+        conn.execute(
+            """
+            INSERT INTO price_snapshots (
+                keyword_slug, keyword, task_name, snapshot_time, snapshot_day,
+                run_id, item_id, title, price, price_display, tags_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "xihua-university",
+                "西华大学",
+                "西华大学",
+                now.isoformat(),
+                now.date().isoformat(),
+                "orphan-run",
+                "legacy-orphan-item",
+                "legacy-orphan-item",
+                100,
+                "¥100",
+                "[]",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO item_metrics_history (
+                item_id, title, snapshot_time, price, want_count
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-orphan-item",
+                "legacy-orphan-item",
+                (now - timedelta(hours=1)).isoformat(),
+                100,
+                20,
+            ),
+        )
+        conn.commit()
+
+    overview = MetricsTrackingService().get_change_overview([24], now=now)
+    orphan_overview = MetricsTrackingService().get_change_overview(
+        [24],
+        task_name="baidu",
+        now=now,
+    )
+
+    assert overview["task_names"] == ["当前任务"]
+    assert [item["item_id"] for item in overview["items"]] == ["active-item"]
+    assert overview["summaries"]["24"]["tracked_items"] == 1
+    assert overview["summaries"]["24"]["want_change"] == 10
+    assert orphan_overview["items"] == []
 
 
 def test_record_metrics_keeps_unchanged_successful_snapshots(tmp_path, monkeypatch):
